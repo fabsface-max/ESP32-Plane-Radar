@@ -85,6 +85,19 @@ char s_runways_checkbox_attrs[32] = "type=\"checkbox\"";
 WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T", 2,
                                      s_runways_checkbox_attrs, WFM_LABEL_AFTER);
 
+char s_track_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_track("show_track", "Show aircraft direction lines",
+                                   "T", 2, s_track_checkbox_attrs, WFM_LABEL_AFTER);
+
+/** Digits plus NUL for a 1..kFontStepCount step number. */
+constexpr int kFontStepParamLen = 2;
+char s_font_step_attrs[48] = "";
+WiFiManagerParameter s_param_font_step(
+    "font_step", "Text size (1 = normal, 3 = smallest)", "1", kFontStepParamLen,
+    s_font_step_attrs);
+
+bool s_display_settings_changed = false;
+
 void refreshPortalParamDefaults() {
   char lat_buf[kCoordParamLen + 1];
   char lon_buf[kCoordParamLen + 1];
@@ -98,6 +111,17 @@ void refreshPortalParamDefaults() {
   snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
            "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
   s_param_runways.setValue("T", 2);
+  snprintf(s_track_checkbox_attrs, sizeof(s_track_checkbox_attrs),
+           "type=\"checkbox\"%s", ui::radar::showTrackVectors() ? " checked" : "");
+  s_param_track.setValue("T", 2);
+
+  snprintf(s_font_step_attrs, sizeof(s_font_step_attrs),
+           " type=\"number\" min=\"1\" max=\"%u\" step=\"1\"",
+           static_cast<unsigned>(ui::radar::kFontStepCount));
+  char font_step_buf[kFontStepParamLen + 1];
+  snprintf(font_step_buf, sizeof(font_step_buf), "%u",
+           static_cast<unsigned>(ui::radar::fontStep()) + 1);
+  s_param_font_step.setValue(font_step_buf, kFontStepParamLen);
 }
 
 void onPortalParamsSaved() {
@@ -107,6 +131,9 @@ void onPortalParamsSaved() {
   }
   ui::radar::saveMilesFromPortal(s_param_miles.getValue());
   ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
+  ui::radar::saveTrackVectorsFromPortal(s_param_track.getValue());
+  ui::radar::saveFontStepFromPortal(s_param_font_step.getValue());
+  s_display_settings_changed = true;
 }
 
 void attachPortalParams(WiFiManager& wm) {
@@ -115,6 +142,8 @@ void attachPortalParams(WiFiManager& wm) {
   wm.addParameter(&s_param_lon);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
+  wm.addParameter(&s_param_track);
+  wm.addParameter(&s_param_font_step);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }
 
@@ -433,6 +462,12 @@ bool wifiReconnect() {
   initBootButton();
   Serial.println("WiFi reconnecting...");
   return connectSavedNetwork(true);
+}
+
+bool wifiConsumeDisplaySettingsChanged() {
+  const bool changed = s_display_settings_changed;
+  s_display_settings_changed = false;
+  return changed;
 }
 
 void wifiLoop() {

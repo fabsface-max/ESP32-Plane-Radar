@@ -9,6 +9,8 @@ bool wifiSetupConnect();
 bool wifiReconnect();
 /** Keeps the LAN config portal alive; call every loop() iteration. */
 void wifiLoop();
+/** Latched: a portal save changed a display option, so the radar needs a redraw. */
+bool wifiConsumeDisplaySettingsChanged();
 bool wifiBootButtonPressed();
 /** GPIO + interrupt setup; call once early in setup(). */
 void bootButtonInit();

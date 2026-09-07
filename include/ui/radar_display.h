@@ -8,4 +8,7 @@ void radarDisplayDraw();
 /** Redraw aircraft only (blits cached grid; no full-screen clear). */
 void radarDisplayRefreshAircraft();
 
+/** Drop cached label fonts after a portal setting changed. Redraw follows. */
+void radarDisplayInvalidateStyle();
+
 }  // namespace ui

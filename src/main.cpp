@@ -42,6 +42,17 @@ void onRangeTap() {
   }
 }
 
+/** Portal saves land in wifiLoop(); apply new label sizes / layers right away. */
+void applyDisplaySettingsIfChanged() {
+  if (!wifiConsumeDisplaySettingsChanged()) {
+    return;
+  }
+  ui::radarDisplayInvalidateStyle();
+  if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
+    ui::radarDisplayDraw();
+  }
+}
+
 void handleBootButton() {
   bootButtonPollLongPress();
   if (bootButtonConsumeTap()) {
@@ -85,6 +96,7 @@ void setup() {
 void loop() {
   handleBootButton();
   wifiLoop();
+  applyDisplaySettingsIfChanged();
 
   if (WiFi.status() != WL_CONNECTED) {
     if (g_radar_visible) {

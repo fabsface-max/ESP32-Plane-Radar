@@ -50,19 +50,30 @@ struct TextLine {
   const lgfx::GFXfont* gfx_font;
 };
 
+/**
+ * Status screens scale the largest embedded font: they are short-lived and
+ * their text is far bigger than the radar labels, so the coarser scaling does
+ * not show. Pin the size explicitly — the radar leaves whichever font its own
+ * labels last needed loaded on the panel.
+ */
+void setSmoothSize(float size) {
+  displayFontEnsureLoaded(tft, kUiFont15);
+  displayFontSetSmoothSize(tft, size);
+}
+
 int lineHeightGfx(const lgfx::GFXfont* font) {
   displayFontSetBitmap(tft, font);
   return tft.fontHeight();
 }
 
 int lineHeightVlw(float size) {
-  displayFontSetSmoothSize(tft, size);
+  setSmoothSize(size);
   return tft.fontHeight();
 }
 
 void applyLineStyle(const TextLine& line) {
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(tft, line.vlw_size);
+    setSmoothSize(line.vlw_size);
   } else {
     displayFontSetBitmap(tft, line.gfx_font);
   }
@@ -100,7 +111,7 @@ constexpr float kConnectingDetailVlw = 0.92f;
 
 void applyConnectingDetailStyle() {
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(tft, kConnectingDetailVlw);
+    setSmoothSize(kConnectingDetailVlw);
   } else {
     displayFontSetBitmap(tft, &kConnectingGfxDetail);
   }

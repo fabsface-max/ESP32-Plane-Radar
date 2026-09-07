@@ -34,20 +34,11 @@ uint16_t kColorRunwayLabel = 0x7DFF;
 namespace {
 
 bool s_label_metrics_ready = false;
-bool s_cardinal_use_vlw = false;
-bool s_scale_use_vlw = false;
-float s_cardinal_vlw_size = 0.56f;
-float s_scale_vlw_size = 0.50f;
-float s_tag_vlw_size = 0.56f;
 const lgfx::GFXfont* s_cardinal_gfx = &fonts::FreeSansBold12pt7b;
 const lgfx::GFXfont* s_scale_gfx = &fonts::FreeSansBold9pt7b;
 const lgfx::GFXfont* s_tag_gfx = &fonts::FreeSansBold12pt7b;
 
 bool s_tag_label_metrics_ready = false;
-bool s_tag_use_vlw = false;
-
-int s_scale_label_max_w = 0;
-int s_scale_label_h = 0;
 
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
@@ -70,26 +61,22 @@ int measureGfxHeight(const lgfx::GFXfont& font) {
   return tft.fontHeight();
 }
 
-int measureVlwHeight(float size) {
-  tft.setTextSize(size);
-  return tft.fontHeight();
+/** Font sizes for the active text size step (portal setting). */
+const radar::FontStepFonts& stepFonts() {
+  constexpr size_t kStepCount =
+      sizeof(radar::kFontStepFonts) / sizeof(radar::kFontStepFonts[0]);
+  const uint8_t step = radar::fontStep();
+  return radar::kFontStepFonts[step < kStepCount ? step : 0];
 }
 
-float findVlwSizeForHeight(int target_px) {
-  float lo = 0.25f;
-  float hi = 1.2f;
-  for (int i = 0; i < 16; ++i) {
-    const float mid = (lo + hi) * 0.5f;
-    if (measureVlwHeight(mid) < target_px) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
+/** Smooth fonts draw at their native size; the bitmap fallback picks by height. */
+void applyRoleStyle(size_t font_index, const lgfx::GFXfont* fallback) {
+  if (displayFontIsSmooth()) {
+    displayFontEnsureLoaded(*s_draw, font_index);
+  } else {
+    displayFontSetBitmap(*s_draw, fallback);
   }
-  return hi;
 }
-
-void applyScaleStyle();
 
 const lgfx::GFXfont* pickGfxFontClosest(
     int target_px, const lgfx::GFXfont* const* candidates, size_t count) {
@@ -111,43 +98,13 @@ void initLabelMetrics() {
     return;
   }
 
-  const int cardinal_target = radar::kCardinalLabelHeightPx;
-
-  if (displayFontIsSmooth()) {
-    s_cardinal_use_vlw = true;
-    s_cardinal_vlw_size = findVlwSizeForHeight(cardinal_target);
-    const int cardinal_h = measureVlwHeight(s_cardinal_vlw_size);
-    const int scale_target = cardinal_h - radar::kScaleBelowCardinalPx;
-    s_scale_use_vlw = true;
-    s_scale_vlw_size = findVlwSizeForHeight(scale_target);
-  } else {
-    const lgfx::GFXfont* cardinal_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                                  &fonts::FreeSansBold9pt7b};
+  if (!displayFontIsSmooth()) {
+    const lgfx::GFXfont* candidates[] = {&fonts::FreeSansBold12pt7b,
+                                         &fonts::FreeSansBold9pt7b};
     s_cardinal_gfx =
-        pickGfxFontClosest(cardinal_target, cardinal_candidates, 2);
-    s_cardinal_use_vlw = false;
-
-    const int cardinal_h = measureGfxHeight(*s_cardinal_gfx);
-    const int scale_target = cardinal_h - radar::kScaleBelowCardinalPx;
-    const lgfx::GFXfont* scale_candidates[] = {&fonts::FreeSansBold9pt7b,
-                                               &fonts::FreeSansBold12pt7b};
-    s_scale_gfx = pickGfxFontClosest(scale_target, scale_candidates, 2);
-    s_scale_use_vlw = false;
-  }
-
-  applyScaleStyle();
-  s_scale_label_h = tft.fontHeight();
-  s_scale_label_max_w = 0;
-  char label[12];
-  for (size_t i = 0; i < radar::kRangePresetCount; ++i) {
-    for (bool miles : {false, true}) {
-      radar::formatRing3Label(label, sizeof(label), radar::kRangePresets[i].ring3_km,
-                              miles);
-      const int w = tft.textWidth(label);
-      if (w > s_scale_label_max_w) {
-        s_scale_label_max_w = w;
-      }
-    }
+        pickGfxFontClosest(kUiFontPx[stepFonts().cardinal], candidates, 2);
+    s_scale_gfx =
+        pickGfxFontClosest(kUiFontPx[stepFonts().scale], candidates, 2);
   }
 
   s_label_metrics_ready = true;
@@ -158,15 +115,10 @@ void initTagLabelMetrics() {
     return;
   }
 
-  const int target = radar::kAircraftTagLabelHeightPx;
-  if (displayFontIsSmooth()) {
-    s_tag_use_vlw = true;
-    s_tag_vlw_size = findVlwSizeForHeight(target);
-  } else {
-    const lgfx::GFXfont* tag_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                               &fonts::FreeSansBold9pt7b};
-    s_tag_gfx = pickGfxFontClosest(target, tag_candidates, 2);
-    s_tag_use_vlw = false;
+  if (!displayFontIsSmooth()) {
+    const lgfx::GFXfont* candidates[] = {&fonts::FreeSansBold12pt7b,
+                                         &fonts::FreeSansBold9pt7b};
+    s_tag_gfx = pickGfxFontClosest(kUiFontPx[stepFonts().tag], candidates, 2);
   }
 
   s_tag_label_metrics_ready = true;
@@ -373,13 +325,7 @@ void drawSpeedVector(int cx, int cy, float heading_deg, float track_deg,
                        color);
 }
 
-void applyTagStyle() {
-  if (s_tag_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_tag_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_tag_gfx);
-  }
-}
+void applyTagStyle() { applyRoleStyle(stepFonts().tag, s_tag_gfx); }
 
 int measureTagBlockWidth(const services::adsb::Aircraft& plane) {
   applyTagStyle();
@@ -536,8 +482,10 @@ void drawAircraft() {
     const size_t i = items[d].index;
     const int x = items[d].x;
     const int y = items[d].y;
-    drawSpeedVector(x, y, planes[i].nose_deg, planes[i].track_deg,
-                    planes[i].gs_knots, radar::kColorTrackVector);
+    if (radar::showTrackVectors()) {
+      drawSpeedVector(x, y, planes[i].nose_deg, planes[i].track_deg,
+                      planes[i].gs_knots, radar::kColorTrackVector);
+    }
     drawHeadingTriangle(x, y, planes[i].nose_deg, radar::kColorAircraft);
   }
   for (size_t d = 0; d < draw_count; ++d) {
@@ -547,20 +495,10 @@ void drawAircraft() {
 }
 
 void applyCardinalStyle() {
-  if (s_cardinal_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_cardinal_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_cardinal_gfx);
-  }
+  applyRoleStyle(stepFonts().cardinal, s_cardinal_gfx);
 }
 
-void applyScaleStyle() {
-  if (s_scale_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_scale_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_scale_gfx);
-  }
-}
+void applyScaleStyle() { applyRoleStyle(stepFonts().scale, s_scale_gfx); }
 
 void drawCardinalLabel(const char* text, int x, int y, textdatum_t datum) {
   applyCardinalStyle();
@@ -643,7 +581,6 @@ template <typename Gfx>
 void drawStaticGrid(Gfx& gfx) {
   initLabelMetrics();
   const DrawScope scope(gfx);
-  displayFontEnsureLoaded(gfx);
   const int cx = radar::kCenterX;
   const int cy = radar::kCenterY;
   const int grid_r = radar::kGridOuterRadius;
@@ -686,6 +623,11 @@ void renderFrame() {
 }
 
 }  // namespace
+
+void radarDisplayInvalidateStyle() {
+  s_label_metrics_ready = false;
+  s_tag_label_metrics_ready = false;
+}
 
 void radarDisplayDraw() {
   initPalette();

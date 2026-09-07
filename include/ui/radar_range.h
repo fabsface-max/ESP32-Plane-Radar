@@ -43,14 +43,26 @@ uint8_t rangeIndex();
 /** ADSB fetch radius (km): scaled to screen edge so beyond-ring dots have data. */
 float fetchRadiusKm();
 
+/**
+ * UI text size steps, largest first. Each step maps to a set of embedded font
+ * sizes in radar_theme.h; the portal shows them 1-based.
+ */
+constexpr uint8_t kFontStepCount = 3;
+
 bool useMiles();
 bool showRunways();
+/** Track/speed vector lines drawn ahead of each aircraft symbol. */
+bool showTrackVectors();
+uint8_t fontStep();
 /** WiFi portal checkbox: "T" = miles, otherwise km. */
 void saveMilesFromPortal(const char* checkbox_value);
 void saveRunwaysFromPortal(const char* checkbox_value);
+void saveTrackVectorsFromPortal(const char* checkbox_value);
+/** WiFi portal number field: 1..kFontStepCount, stored 0-based. */
+void saveFontStepFromPortal(const char* value);
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles);
 void formatCurrentRing3Label(char* buf, size_t len);
-/** Reset distance units to km (e.g. with WiFi credential wipe). */
+/** Reset display options to their defaults (e.g. with WiFi credential wipe). */
 void unitsReset();
 
 }  // namespace ui::radar

@@ -44,6 +44,8 @@ The same portal runs on the setup AP and on the device’s LAN IP while connecte
 | **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set) |
 | **Display distances in miles** | Ring scale label in **mi** instead of **km** (e.g. `6mi` vs `10km`) |
 | **Show airport runways** | Major-airport runway overlay on the radar (off to hide) |
+| **Show aircraft direction lines** | Track/speed vector ahead of each aircraft symbol (off to hide) |
+| **Text size** | `1` normal, `2` small, `3` smallest — picks a smaller embedded font for every label |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
@@ -66,7 +68,24 @@ Layout and colors: `include/ui/radar_theme.h`.
 | 15 km / 9 mi | ~20 km |
 | 25 km / 16 mi | ~33.3 km |
 
-Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
+Preset, units, overlays and text size persist across reboot (`planeradar` NVS namespace).
+
+### Text size
+
+Three steps, set in the Wi‑Fi setup portal, applied without a reboot.
+
+LovyanGFX draws a VLW glyph by mapping each source pixel to a `size_x` × `size_y`
+rectangle, so a font shown below its native size loses whole rows and columns of
+its anti-aliasing. Instead of scaling one font down, the firmware embeds one file
+per pixel size (15 / 13 / 11 / 9) and each label picks the file matching its
+target height, always drawn at scale 1.0. Sizes per role and step:
+`kFontStepFonts` in `include/ui/radar_theme.h`.
+
+Rebuild the font files (needs `pip install freetype-py`):
+
+```bash
+python3 scripts/build_ui_fonts.py
+```
 
 ### Runways
 
@@ -76,7 +95,7 @@ Preset and miles/km choice persist across reboot (`planeradar` NVS namespace).
 
 ### Aircraft
 
-- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring), callsign / type / altitude tags
+- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring; toggle in the portal), callsign / type / altitude tags
 - **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
 - **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
 
@@ -126,9 +145,13 @@ include/
     radar_location.h
     adsb_client.h
 data/
-  ui_font.vlw              — embedded smooth UI font (Noto Sans Bold)
+  ui_font_15.vlw           — embedded smooth UI fonts (Noto Sans SemiBold),
+  ui_font_13.vlw             one per native pixel size
+  ui_font_11.vlw
+  ui_font_9.vlw
 scripts/
   build_large_airports.py
+  build_ui_fonts.py
 src/
   main.cpp
   data/

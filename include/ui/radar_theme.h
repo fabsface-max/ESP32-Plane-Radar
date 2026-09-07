@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "hardware/display_font.h"
+
 namespace ui::radar {
 
 constexpr int kSize = 240;
@@ -19,10 +21,23 @@ constexpr int kCardinalSouthOffsetY = 3;
 /** Gap between scale label right edge and outer ring on the east spoke (px). */
 constexpr int kScaleGapFromOuterRing = 6;
 
-/** Target cap height (px) for N/S/E/W. */
-constexpr int kCardinalLabelHeightPx = 14;
-/** Scale label is this many px shorter than cardinals. */
-constexpr int kScaleBelowCardinalPx = 3;
+/**
+ * Embedded font (kUiFont* index) per label role at each text size step.
+ * Step 0 reproduces the sizes the radar shipped with; later steps shrink the
+ * labels without shrinking the glyphs, so text stays anti-aliased.
+ */
+struct FontStepFonts {
+  uint8_t cardinal;
+  uint8_t scale;
+  uint8_t tag;
+  uint8_t runway;
+};
+
+constexpr FontStepFonts kFontStepFonts[] = {
+    {kUiFont15, kUiFont11, kUiFont13, kUiFont15},  // normal
+    {kUiFont13, kUiFont9, kUiFont11, kUiFont13},   // small
+    {kUiFont11, kUiFont9, kUiFont9, kUiFont11},    // smallest
+};
 
 constexpr int kRingCount = 4;
 
@@ -48,7 +63,6 @@ constexpr float kAircraftTrackLineHalfWidth = 1.0f;
 
 constexpr float kRunwayLineWidthPx = 2.0f;
 constexpr float kRunwayLineHalfWidth = kRunwayLineWidthPx * 0.5f;
-constexpr int kRunwayLabelHeightPx = kCardinalLabelHeightPx;
 constexpr int kRunwayLabelGapPx = 3;
 /** Gap from triangle edge to tag block (px). */
 constexpr int kAircraftLabelGapPx = 1;
@@ -59,8 +73,6 @@ constexpr int kAircraftInsideRingInsetPx =
 /** Beyond-ring traffic: bearing cues on screen rim (correct direction, fixed radius). */
 constexpr int kBeyondRingDotRadiusPx = 4;
 constexpr int kBeyondRingScreenMarginPx = 2;
-/** Target cap height (px) for aircraft tags (bold, slightly above scale label). */
-constexpr int kAircraftTagLabelHeightPx = 13;
 
 /** RGB565 palette targets (applied in initPalette). */
 constexpr uint8_t kBgR = 4;

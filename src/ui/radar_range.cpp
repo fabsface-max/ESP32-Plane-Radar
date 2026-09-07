@@ -5,6 +5,7 @@
 #include <Preferences.h>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace ui::radar {
@@ -15,6 +16,8 @@ constexpr char kPrefsNamespace[] = "planeradar";
 constexpr char kPrefsRangeKey[] = "rangeIdx";
 constexpr char kPrefsMilesKey[] = "useMiles";
 constexpr char kPrefsRunwaysKey[] = "showRwys";
+constexpr char kPrefsTrackKey[] = "showTrack";
+constexpr char kPrefsFontStepKey[] = "fontStep";
 constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
 constexpr float kKmPerMile = 1.609344f;
 
@@ -22,6 +25,8 @@ Preferences s_prefs;
 uint8_t s_range_index = kDefaultRangeIndex;
 bool s_use_miles = false;
 bool s_show_runways = true;
+bool s_show_track_vectors = true;
+uint8_t s_font_step = 0;
 
 void saveRangeIndex() {
   if (!s_prefs.begin(kPrefsNamespace, false)) {
@@ -44,6 +49,22 @@ void saveShowRunways() {
     return;
   }
   s_prefs.putBool(kPrefsRunwaysKey, s_show_runways);
+  s_prefs.end();
+}
+
+void saveShowTrackVectors() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putBool(kPrefsTrackKey, s_show_track_vectors);
+  s_prefs.end();
+}
+
+void saveFontStep() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putUChar(kPrefsFontStepKey, s_font_step);
   s_prefs.end();
 }
 
@@ -70,6 +91,9 @@ void rangeInit() {
       (saved < kRangePresetCount) ? saved : kDefaultRangeIndex;
   s_use_miles = s_prefs.getBool(kPrefsMilesKey, false);
   s_show_runways = s_prefs.getBool(kPrefsRunwaysKey, true);
+  s_show_track_vectors = s_prefs.getBool(kPrefsTrackKey, true);
+  const uint8_t font_step = s_prefs.getUChar(kPrefsFontStepKey, 0);
+  s_font_step = (font_step < kFontStepCount) ? font_step : 0;
   s_prefs.end();
 }
 
@@ -93,6 +117,10 @@ bool useMiles() { return s_use_miles; }
 
 bool showRunways() { return s_show_runways; }
 
+bool showTrackVectors() { return s_show_track_vectors; }
+
+uint8_t fontStep() { return s_font_step; }
+
 void saveMilesFromPortal(const char* checkbox_value) {
   s_use_miles = portalCheckboxChecked(checkbox_value);
   saveUseMiles();
@@ -103,6 +131,23 @@ void saveRunwaysFromPortal(const char* checkbox_value) {
   s_show_runways = portalCheckboxChecked(checkbox_value);
   saveShowRunways();
   Serial.printf("Runway overlay: %s\n", s_show_runways ? "on" : "off");
+}
+
+void saveTrackVectorsFromPortal(const char* checkbox_value) {
+  s_show_track_vectors = portalCheckboxChecked(checkbox_value);
+  saveShowTrackVectors();
+  Serial.printf("Track vectors: %s\n", s_show_track_vectors ? "on" : "off");
+}
+
+void saveFontStepFromPortal(const char* value) {
+  // Portal shows 1..kFontStepCount; anything out of range keeps the default.
+  const long entered = (value != nullptr) ? strtol(value, nullptr, 10) : 0;
+  if (entered < 1 || entered > kFontStepCount) {
+    return;
+  }
+  s_font_step = static_cast<uint8_t>(entered - 1);
+  saveFontStep();
+  Serial.printf("Text size step: %u\n", static_cast<unsigned>(s_font_step) + 1);
 }
 
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles) {
@@ -122,9 +167,13 @@ void formatCurrentRing3Label(char* buf, size_t len) {
 void unitsReset() {
   s_use_miles = false;
   s_show_runways = true;
+  s_show_track_vectors = true;
+  s_font_step = 0;
   if (s_prefs.begin(kPrefsNamespace, false)) {
     s_prefs.remove(kPrefsMilesKey);
     s_prefs.remove(kPrefsRunwaysKey);
+    s_prefs.remove(kPrefsTrackKey);
+    s_prefs.remove(kPrefsFontStepKey);
     s_prefs.end();
   }
 }

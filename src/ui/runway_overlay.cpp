@@ -21,51 +21,19 @@ constexpr size_t kMaxAirportLabels = 32;
 bool s_in_range[data::large_airports::kAirportCount];
 bool s_label_pending[data::large_airports::kAirportCount];
 
-bool s_runway_label_ready = false;
-bool s_runway_label_use_vlw = false;
-float s_runway_label_vlw_size = 0.38f;
-const lgfx::GFXfont* s_runway_label_gfx = &fonts::FreeSansBold12pt7b;
-
-int measureVlwHeight(lgfx::LGFXBase& gfx, float size) {
-  gfx.setTextSize(size);
-  return gfx.fontHeight();
-}
-
-float findVlwSizeForHeight(lgfx::LGFXBase& gfx, int target_px) {
-  float lo = 0.2f;
-  float hi = 1.2f;
-  for (int i = 0; i < 14; ++i) {
-    const float mid = (lo + hi) * 0.5f;
-    if (measureVlwHeight(gfx, mid) < target_px) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return hi;
-}
-
-void initRunwayLabelStyle(lgfx::LGFXBase& gfx) {
-  if (s_runway_label_ready) {
-    return;
-  }
-
-  const int target = radar::kRunwayLabelHeightPx;
-  if (displayFontIsSmooth()) {
-    s_runway_label_use_vlw = true;
-    s_runway_label_vlw_size = findVlwSizeForHeight(gfx, target);
-  } else {
-    s_runway_label_gfx = &fonts::FreeSansBold12pt7b;
-    s_runway_label_use_vlw = false;
-  }
-  s_runway_label_ready = true;
+/** Embedded font for the ICAO tags at the active text size step. */
+size_t runwayLabelFont() {
+  constexpr size_t kStepCount =
+      sizeof(radar::kFontStepFonts) / sizeof(radar::kFontStepFonts[0]);
+  const uint8_t step = radar::fontStep();
+  return radar::kFontStepFonts[step < kStepCount ? step : 0].runway;
 }
 
 void applyRunwayLabelStyle(lgfx::LGFXBase& gfx) {
-  if (s_runway_label_use_vlw) {
-    displayFontSetSmoothSize(gfx, s_runway_label_vlw_size);
+  if (displayFontIsSmooth()) {
+    displayFontEnsureLoaded(gfx, runwayLabelFont());
   } else {
-    displayFontSetBitmap(gfx, s_runway_label_gfx);
+    displayFontSetBitmap(gfx, &fonts::FreeSansBold12pt7b);
   }
 }
 
@@ -252,7 +220,6 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
   if (!radar::showRunways()) {
     return;
   }
-  displayFontEnsureLoaded(gfx);
   const float radius_km = radar::fetchRadiusKm();
 
   uint16_t label_airports[kMaxAirportLabels];
@@ -291,7 +258,6 @@ void drawLargeAirportRunways(lgfx::LGFXBase& gfx) {
     return;
   }
 
-  initRunwayLabelStyle(gfx);
   applyRunwayLabelStyle(gfx);
   for (size_t i = 0; i < label_count; ++i) {
     drawAirportLabel(gfx, data::large_airports::kAirports[label_airports[i]]);
