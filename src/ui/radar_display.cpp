@@ -194,11 +194,6 @@ int distSqFromCenter(int x, int y) {
   return dx * dx + dy * dy;
 }
 
-bool isInsideOuterRing(int x, int y) {
-  const int max_r = radar::kGridOuterRadius - radar::kAircraftInsideRingInsetPx;
-  return distSqFromCenter(x, y) <= max_r * max_r;
-}
-
 /** Rim dot from true bearing; always on screen edge (even if target is 50+ km away). */
 bool beyondRingEdgeDotFromLatLon(float lat, float lon, int* out_x, int* out_y) {
   float dx_km = 0.0f;
