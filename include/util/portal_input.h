@@ -61,4 +61,39 @@ inline bool stepIndex(const char* value, uint8_t count, uint8_t* out) {
   return true;
 }
 
+/**
+ * Parse a portal number field that only accepts a fixed set of values, such as
+ * a flash duration of 0, 3, 5 or 7 seconds. Returns false — leaving *out
+ * untouched — for anything else.
+ */
+inline bool oneOf(const char* value, const uint8_t* allowed, size_t count,
+                  uint8_t* out) {
+  if (value == nullptr || allowed == nullptr || out == nullptr || count == 0) {
+    return false;
+  }
+
+  uint32_t parsed = 0;
+  size_t digits = 0;
+  for (const char* p = value; *p != '\0'; ++p) {
+    if (*p < '0' || *p > '9') {
+      return false;
+    }
+    if (++digits > 3) {
+      return false;
+    }
+    parsed = parsed * 10 + static_cast<uint32_t>(*p - '0');
+  }
+  if (digits == 0) {
+    return false;
+  }
+
+  for (size_t i = 0; i < count; ++i) {
+    if (parsed == allowed[i]) {
+      *out = allowed[i];
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace util::portal

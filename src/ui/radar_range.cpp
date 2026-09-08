@@ -17,6 +17,10 @@ constexpr char kPrefsMilesKey[] = "useMiles";
 constexpr char kPrefsRunwaysKey[] = "showRwys";
 constexpr char kPrefsTrackKey[] = "showTrack";
 constexpr char kPrefsFontStepKey[] = "fontStep";
+constexpr char kPrefsTrailsKey[] = "showTrails";
+constexpr char kPrefsIconsKey[] = "showIcons";
+constexpr char kPrefsAlertSecKey[] = "alertSec";
+constexpr uint8_t kDefaultAlertSeconds = 5;
 constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
 constexpr float kKmPerMile = 1.609344f;
 
@@ -25,6 +29,9 @@ uint8_t s_range_index = kDefaultRangeIndex;
 bool s_use_miles = false;
 bool s_show_runways = true;
 bool s_show_track_vectors = true;
+bool s_show_trails = true;
+bool s_show_class_icons = true;
+uint8_t s_alert_seconds = kDefaultAlertSeconds;
 uint8_t s_font_step = 0;
 
 void saveRangeIndex() {
@@ -67,6 +74,40 @@ void saveFontStep() {
   s_prefs.end();
 }
 
+void saveShowTrails() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putBool(kPrefsTrailsKey, s_show_trails);
+  s_prefs.end();
+}
+
+void saveShowClassIcons() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putBool(kPrefsIconsKey, s_show_class_icons);
+  s_prefs.end();
+}
+
+void saveAlertSeconds() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putUChar(kPrefsAlertSecKey, s_alert_seconds);
+  s_prefs.end();
+}
+
+/** A stored value from an older or corrupted record must not reach the UI. */
+uint8_t sanitizedAlertSeconds(uint8_t stored) {
+  for (uint8_t choice : kAlertSecondsChoices) {
+    if (stored == choice) {
+      return stored;
+    }
+  }
+  return kDefaultAlertSeconds;
+}
+
 }  // namespace
 
 void rangeInit() {
@@ -79,6 +120,10 @@ void rangeInit() {
   s_use_miles = s_prefs.getBool(kPrefsMilesKey, false);
   s_show_runways = s_prefs.getBool(kPrefsRunwaysKey, true);
   s_show_track_vectors = s_prefs.getBool(kPrefsTrackKey, true);
+  s_show_trails = s_prefs.getBool(kPrefsTrailsKey, true);
+  s_show_class_icons = s_prefs.getBool(kPrefsIconsKey, true);
+  s_alert_seconds =
+      sanitizedAlertSeconds(s_prefs.getUChar(kPrefsAlertSecKey, kDefaultAlertSeconds));
   const uint8_t font_step = s_prefs.getUChar(kPrefsFontStepKey, 0);
   s_font_step = (font_step < kFontStepCount) ? font_step : 0;
   s_prefs.end();
@@ -106,6 +151,12 @@ bool showRunways() { return s_show_runways; }
 
 bool showTrackVectors() { return s_show_track_vectors; }
 
+bool showTrails() { return s_show_trails; }
+
+bool showClassIcons() { return s_show_class_icons; }
+
+uint8_t alertSeconds() { return s_alert_seconds; }
+
 uint8_t fontStep() { return s_font_step; }
 
 void saveMilesFromPortal(const char* checkbox_value) {
@@ -124,6 +175,29 @@ void saveTrackVectorsFromPortal(const char* checkbox_value) {
   s_show_track_vectors = util::portal::checkboxChecked(checkbox_value);
   saveShowTrackVectors();
   Serial.printf("Track vectors: %s\n", s_show_track_vectors ? "on" : "off");
+}
+
+void saveTrailsFromPortal(const char* checkbox_value) {
+  s_show_trails = util::portal::checkboxChecked(checkbox_value);
+  saveShowTrails();
+  Serial.printf("Trails: %s\n", s_show_trails ? "on" : "off");
+}
+
+void saveClassIconsFromPortal(const char* checkbox_value) {
+  s_show_class_icons = util::portal::checkboxChecked(checkbox_value);
+  saveShowClassIcons();
+  Serial.printf("Class icons: %s\n", s_show_class_icons ? "on" : "off");
+}
+
+void saveAlertSecondsFromPortal(const char* value) {
+  uint8_t seconds = 0;
+  if (!util::portal::oneOf(value, kAlertSecondsChoices,
+                           kAlertSecondsChoiceCount, &seconds)) {
+    return;
+  }
+  s_alert_seconds = seconds;
+  saveAlertSeconds();
+  Serial.printf("Alert flash: %u s\n", static_cast<unsigned>(s_alert_seconds));
 }
 
 void saveFontStepFromPortal(const char* value) {
@@ -155,12 +229,18 @@ void unitsReset() {
   s_use_miles = false;
   s_show_runways = true;
   s_show_track_vectors = true;
+  s_show_trails = true;
+  s_show_class_icons = true;
+  s_alert_seconds = kDefaultAlertSeconds;
   s_font_step = 0;
   if (s_prefs.begin(kPrefsNamespace, false)) {
     s_prefs.remove(kPrefsMilesKey);
     s_prefs.remove(kPrefsRunwaysKey);
     s_prefs.remove(kPrefsTrackKey);
     s_prefs.remove(kPrefsFontStepKey);
+    s_prefs.remove(kPrefsTrailsKey);
+    s_prefs.remove(kPrefsIconsKey);
+    s_prefs.remove(kPrefsAlertSecKey);
     s_prefs.end();
   }
 }

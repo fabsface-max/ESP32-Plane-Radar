@@ -107,6 +107,22 @@ char s_track_checkbox_attrs[32] = "type=\"checkbox\"";
 WiFiManagerParameter s_param_track("show_track", "Show aircraft direction lines",
                                    "T", 2, s_track_checkbox_attrs, WFM_LABEL_AFTER);
 
+char s_trails_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_trails("show_trails", "Show flight trails", "T", 2,
+                                    s_trails_checkbox_attrs, WFM_LABEL_AFTER);
+
+char s_icons_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_icons(
+    "show_icons", "Separate symbols for helicopters and heavies", "T", 2,
+    s_icons_checkbox_attrs, WFM_LABEL_AFTER);
+
+/** Digits plus NUL for a seconds value out of kAlertSecondsChoices. */
+constexpr int kAlertSecParamLen = 2;
+char s_alert_sec_attrs[64] = "";
+WiFiManagerParameter s_param_alert_sec(
+    "alert_sec", "Alert flash seconds (0 = off, 3, 5 or 7)", "5",
+    kAlertSecParamLen, s_alert_sec_attrs);
+
 /** Digits plus NUL for a 1..kFontStepCount step number. */
 constexpr int kFontStepParamLen = 2;
 char s_font_step_attrs[48] = "";
@@ -133,6 +149,24 @@ void refreshPortalParamDefaults() {
            "type=\"checkbox\"%s", ui::radar::showTrackVectors() ? " checked" : "");
   s_param_track.setValue("T", 2);
 
+  snprintf(s_trails_checkbox_attrs, sizeof(s_trails_checkbox_attrs),
+           "type=\"checkbox\"%s", ui::radar::showTrails() ? " checked" : "");
+  s_param_trails.setValue("T", 2);
+  snprintf(s_icons_checkbox_attrs, sizeof(s_icons_checkbox_attrs),
+           "type=\"checkbox\"%s", ui::radar::showClassIcons() ? " checked" : "");
+  s_param_icons.setValue("T", 2);
+
+  // A number field rather than a free one: only 0, 3, 5 and 7 are accepted, and
+  // the browser should say so before the device has to reject it.
+  snprintf(s_alert_sec_attrs, sizeof(s_alert_sec_attrs),
+           " type=\"number\" min=\"0\" max=\"%u\" step=\"1\"",
+           static_cast<unsigned>(
+               ui::radar::kAlertSecondsChoices[ui::radar::kAlertSecondsChoiceCount - 1]));
+  char alert_sec_buf[kAlertSecParamLen + 1];
+  snprintf(alert_sec_buf, sizeof(alert_sec_buf), "%u",
+           static_cast<unsigned>(ui::radar::alertSeconds()));
+  s_param_alert_sec.setValue(alert_sec_buf, kAlertSecParamLen);
+
   snprintf(s_font_step_attrs, sizeof(s_font_step_attrs),
            " type=\"number\" min=\"1\" max=\"%u\" step=\"1\"",
            static_cast<unsigned>(ui::radar::kFontStepCount));
@@ -150,6 +184,9 @@ void onPortalParamsSaved() {
   ui::radar::saveMilesFromPortal(s_param_miles.getValue());
   ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
   ui::radar::saveTrackVectorsFromPortal(s_param_track.getValue());
+  ui::radar::saveTrailsFromPortal(s_param_trails.getValue());
+  ui::radar::saveClassIconsFromPortal(s_param_icons.getValue());
+  ui::radar::saveAlertSecondsFromPortal(s_param_alert_sec.getValue());
   ui::radar::saveFontStepFromPortal(s_param_font_step.getValue());
   s_display_settings_changed = true;
 }
@@ -161,6 +198,9 @@ void attachPortalParams(WiFiManager& wm) {
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
   wm.addParameter(&s_param_track);
+  wm.addParameter(&s_param_trails);
+  wm.addParameter(&s_param_icons);
+  wm.addParameter(&s_param_alert_sec);
   wm.addParameter(&s_param_font_step);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }

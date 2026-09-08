@@ -10,9 +10,11 @@
 #include "services/adsb_client.h"
 #include "services/radar_location.h"
 #include "services/wifi_setup.h"
+#include "ui/alert.h"
 #include "ui/radar_display.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
+#include "ui/trails.h"
 
 namespace {
 
@@ -48,6 +50,10 @@ void applyDisplaySettingsIfChanged() {
     return;
   }
   ui::radarDisplayInvalidateStyle();
+  // The radar centre may have moved with the same save, which would leave every
+  // stored trail pointing at the wrong place.
+  ui::trails::clear();
+  ui::alert::reset();
   if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
     ui::radarDisplayDraw();
   }
@@ -60,6 +66,12 @@ void handleBootButton() {
   }
 }
 
+/** Keeps the portal and the BOOT button alive during the alert animation. */
+void pollDuringAlert() {
+  wifiLoop();
+  bootButtonPollLongPress();
+}
+
 void fetchAndDrawAircraft() {
   const float fetch_km = ui::radar::fetchRadiusKm();
   if (!services::adsb::fetchUpdate(services::location::lat(),
@@ -67,7 +79,13 @@ void fetchAndDrawAircraft() {
     handleBootButton();
     return;
   }
+  const unsigned long now = millis();
+  ui::trails::update(services::adsb::aircraftList(),
+                     services::adsb::aircraftCount(), now);
+  ui::alert::scan(services::adsb::aircraftList(),
+                  services::adsb::aircraftCount(), now);
   ui::radarDisplayRefreshAircraft();
+  ui::radarDisplayPlayAlert(pollDuringAlert);
   handleBootButton();
 }
 

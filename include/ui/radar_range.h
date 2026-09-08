@@ -49,15 +49,30 @@ float fetchRadiusKm();
  */
 constexpr uint8_t kFontStepCount = 3;
 
+/** Flash durations the portal accepts, in seconds; 0 turns alerts off. */
+constexpr uint8_t kAlertSecondsChoices[] = {0, 3, 5, 7};
+constexpr size_t kAlertSecondsChoiceCount =
+    sizeof(kAlertSecondsChoices) / sizeof(kAlertSecondsChoices[0]);
+
 bool useMiles();
 bool showRunways();
 /** Track/speed vector lines drawn ahead of each aircraft symbol. */
 bool showTrackVectors();
+/** Thin grey tail behind each aircraft. */
+bool showTrails();
+/** Per-class silhouettes (helicopter, heavy) instead of one triangle. */
+bool showClassIcons();
+/** Flash duration in seconds; 0 = alerts off. */
+uint8_t alertSeconds();
 uint8_t fontStep();
 /** WiFi portal checkbox: "T" = miles, otherwise km. */
 void saveMilesFromPortal(const char* checkbox_value);
 void saveRunwaysFromPortal(const char* checkbox_value);
 void saveTrackVectorsFromPortal(const char* checkbox_value);
+void saveTrailsFromPortal(const char* checkbox_value);
+void saveClassIconsFromPortal(const char* checkbox_value);
+/** WiFi portal number field: one of kAlertSecondsChoices. */
+void saveAlertSecondsFromPortal(const char* value);
 /** WiFi portal number field: 1..kFontStepCount, stored 0-based. */
 void saveFontStepFromPortal(const char* value);
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles);

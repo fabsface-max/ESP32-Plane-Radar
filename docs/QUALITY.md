@@ -73,6 +73,16 @@ and walk this list:
 - [ ] Range presets still cycle on a short BOOT tap, and the range label matches.
 - [ ] Hold BOOT 3 s → credentials, location, units, text size and overlay flags
       all reset, device reboots into setup.
+- [ ] Untick **Show flight trails** → tails disappear, symbols stay. Re-tick and
+      wait two fetch intervals → tails grow again and follow the aircraft.
+- [ ] Untick **Separate symbols…** → every aircraft is the original triangle.
+      Re-tick → helicopters show as rotor discs, wide-bodies as large triangles.
+- [ ] Set **Alert flash seconds** to 3, then wait for a military or wide-body
+      contact → the ring pulses for about three seconds and the radar returns
+      to normal. The same aircraft must not fire again on the next sweep.
+- [ ] Set it to 0 → no flash at all.
+- [ ] An airline flight shows its operator's name on the top tag line; a
+      registration or hex id still shows verbatim.
 - [ ] Leave it running ~15 minutes → aircraft keep updating, no reboot loop
       (watch the serial log at 115200 baud for stack traces).
 

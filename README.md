@@ -46,6 +46,9 @@ The same portal runs on the setup AP and on the device’s LAN IP while connecte
 | **Show airport runways** | Major-airport runway overlay on the radar (off to hide) |
 | **Show aircraft direction lines** | Track/speed vector ahead of each aircraft symbol (off to hide) |
 | **Text size** | `1` normal, `2` small, `3` smallest — picks a smaller embedded font for every label |
+| **Show flight trails** | Thin grey tail through each aircraft's recent positions |
+| **Separate symbols for helicopters and heavies** | Per-class silhouettes instead of one triangle for everything |
+| **Alert flash seconds** | `0` off, or `3` / `5` / `7` — how long the radar pulses for a noteworthy aircraft |
 
 After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
 
@@ -93,11 +96,52 @@ python3 scripts/build_ui_fonts.py
 - Teal runway lines with one ICAO label per airport (e.g. `KJFK`); toggle in the Wi‑Fi setup portal
 - Update the embedded list: `python3 scripts/build_large_airports.py`
 
+### Airline names
+
+- ICAO airline codes from [OpenFlights](https://openflights.org/data.html), used under the **Open Database License (ODbL)**
+- Rebuild: `python3 scripts/build_airlines.py` (~5 800 airlines, ~126 KB of flash)
+- Names are trimmed to 16 characters and cut further at draw time so a tag cannot cover the radar
+- The source data carries some stale records (a few codes still resolve to a predecessor airline)
+
 ### Aircraft
 
 - **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring; toggle in the portal), callsign / type / altitude tags
 - **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
 - **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
+- **Top tag line** — the operator's name when the callsign is an airline flight (`DLH4AB` → `Lufthansa`), otherwise the callsign as received. Registrations and bare hex ids are never reattributed. The flight number is not shown; the name replaces it.
+- **Trails** — thin grey line through the last few positions, ending at the symbol (about 20 s of history at the default fetch interval)
+
+### Aircraft symbols
+
+At 240 px only two outlines survive rotation, so weight class is carried by
+triangle size and shape only separates rotorcraft from fixed wing:
+
+| Class | Symbol | Chosen when |
+|-------|--------|-------------|
+| Light | small triangle | emitter category `A1` |
+| Jet / airliner | the original triangle | everything else, including unknown |
+| Heavy | large triangle | category `A5`, or a wide-body type code (`A388`, `B744`, …) |
+| Helicopter | rotor disc with blades | category `A7`, or a rotorcraft type code (`EC35`, `R44`, …) |
+
+`category`, `squawk`, `emergency` and `dbFlags` are all optional in the feed and
+most aircraft send none of them, so every rule falls back to the jet symbol
+rather than guessing. Type tables live in `src/util/aircraft_class.cpp`; they
+match exactly, never by prefix — `B47` is a Stratojet, `B47G` a Bell 47.
+
+### Alerts
+
+The radar pulses a coloured ring outward for the configured number of seconds
+when something noteworthy first appears. Each aircraft fires once per visit;
+it has to leave and stay away for ten minutes before it can interrupt again.
+
+| Trigger | Colour |
+|---------|--------|
+| Emergency — squawk 7500 / 7600 / 7700, or a declared `emergency` | red |
+| Military — `dbFlags` bit 0 | amber |
+| Notable type — A380, 747, An-124/225, Beluga, C-5, Il-76 … | cyan |
+
+The animation blocks the fetch loop while it runs; the Wi-Fi portal and the
+BOOT button keep being serviced every frame.
 
 As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
 
@@ -180,6 +224,7 @@ data/
 scripts/
   build_large_airports.py
   build_ui_fonts.py
+  build_airlines.py
 test/
   test_util/               — host unit tests (pio test -e native)
 docs/

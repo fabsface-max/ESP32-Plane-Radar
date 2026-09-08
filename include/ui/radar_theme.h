@@ -46,10 +46,37 @@ constexpr float kGridStrokeHalfWidth = 1.0f;
 
 constexpr int kCenterDotRadius = 2;
 
-/** Filled aircraft symbol (nose triangle). */
-constexpr int kAircraftNoseLenPx = 8;
-constexpr int kAircraftTailLenPx = 3;
-constexpr int kAircraftTailHalfPx = 4;
+/**
+ * Aircraft silhouettes, indexed by util::aircraft::Klass.
+ *
+ * At this size only two outlines survive rotation — a triangle and a rotor —
+ * so weight class is carried by triangle size instead of by shape. Index 1 is
+ * the symbol the radar has always drawn.
+ */
+struct AircraftShape {
+  int nose;
+  int tail;
+  int half;
+};
+
+constexpr AircraftShape kAircraftShapes[] = {
+    {6, 2, 3},    // light
+    {8, 3, 4},    // jet
+    {11, 4, 6},   // heavy
+    {8, 3, 4},    // rotor: drawn as a disc, kept here for tag spacing
+};
+constexpr size_t kAircraftShapeCount =
+    sizeof(kAircraftShapes) / sizeof(kAircraftShapes[0]);
+
+/** Index into kAircraftShapes used when per-class icons are switched off. */
+constexpr size_t kAircraftShapeDefault = 1;
+
+constexpr int kRotorDiscRadiusPx = 3;
+constexpr int kRotorBladeLenPx = 7;
+
+/** Longest silhouette, for insets that must hold for every class. */
+constexpr int kAircraftNoseLenPx = 11;
+constexpr int kAircraftTailHalfPx = 6;
 /** Track vector: ground distance covered in this many seconds at current gs. */
 constexpr float kAircraftTrackHorizonSec = 60.0f;
 /** Minimum visible vector when gs > 0 (px). */
@@ -66,6 +93,13 @@ constexpr float kRunwayLineHalfWidth = kRunwayLineWidthPx * 0.5f;
 constexpr int kRunwayLabelGapPx = 3;
 /** Gap from triangle edge to tag block (px). */
 constexpr int kAircraftLabelGapPx = 1;
+/** Airline names are cut to this width so a tag cannot swallow the radar. */
+constexpr int kAircraftTagMaxWidthPx = 96;
+
+/** Trail: neutral grey, so the panel's colour order cannot tint it. */
+constexpr uint8_t kTrailGrey = 96;
+/** Points drawn behind each aircraft; the newest is the symbol itself. */
+constexpr size_t kTrailDrawPoints = 7;
 /** Keep symbol centroid inside outer ring by at least this inset (px). */
 constexpr int kAircraftInsideRingInsetPx =
     kAircraftNoseLenPx + kAircraftTailHalfPx + 1;
@@ -100,6 +134,27 @@ constexpr uint8_t kRunwayB = 170;
 constexpr uint8_t kRunwayLabelR = 110;
 constexpr uint8_t kRunwayLabelG = 210;
 constexpr uint8_t kRunwayLabelB = 230;
+
+/**
+ * Alert pulse: a ring sweeping out from the centre, repeated for the duration
+ * set in the portal. Colours go through the same panel correction as the
+ * aircraft red, which is the one the hardware is known to render correctly.
+ */
+constexpr uint8_t kAlertEmergencyR = 255;
+constexpr uint8_t kAlertEmergencyG = 40;
+constexpr uint8_t kAlertEmergencyB = 30;
+constexpr uint8_t kAlertMilitaryR = 255;
+constexpr uint8_t kAlertMilitaryG = 170;
+constexpr uint8_t kAlertMilitaryB = 0;
+constexpr uint8_t kAlertNotableR = 0;
+constexpr uint8_t kAlertNotableG = 220;
+constexpr uint8_t kAlertNotableB = 255;
+
+/** One sweep of the ring from centre to rim. */
+constexpr unsigned long kAlertPulseMs = 900;
+/** Target frame interval during the animation (~22 fps). */
+constexpr unsigned long kAlertFrameMs = 45;
+constexpr float kAlertRingHalfWidth = 2.0f;
 
 extern uint16_t kColorBackground;
 extern uint16_t kColorGrid;
