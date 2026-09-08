@@ -5,15 +5,21 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 #include "config.h"
+#include "data/airline_lookup.h"
+#include "data/airlines.h"
 #include "hardware/display.h"
 #include "hardware/display_font.h"
 #include "services/adsb_client.h"
 #include "services/radar_location.h"
+#include "ui/alert.h"
 #include "ui/radar_range.h"
 #include "ui/radar_theme.h"
 #include "ui/runway_overlay.h"
+#include "ui/trails.h"
+#include "util/aircraft_class.h"
 
 namespace ui {
 namespace radar {
@@ -34,20 +40,11 @@ uint16_t kColorRunwayLabel = 0x7DFF;
 namespace {
 
 bool s_label_metrics_ready = false;
-bool s_cardinal_use_vlw = false;
-bool s_scale_use_vlw = false;
-float s_cardinal_vlw_size = 0.56f;
-float s_scale_vlw_size = 0.50f;
-float s_tag_vlw_size = 0.56f;
 const lgfx::GFXfont* s_cardinal_gfx = &fonts::FreeSansBold12pt7b;
 const lgfx::GFXfont* s_scale_gfx = &fonts::FreeSansBold9pt7b;
 const lgfx::GFXfont* s_tag_gfx = &fonts::FreeSansBold12pt7b;
 
 bool s_tag_label_metrics_ready = false;
-bool s_tag_use_vlw = false;
-
-int s_scale_label_max_w = 0;
-int s_scale_label_h = 0;
 
 lgfx::LovyanGFX* s_draw = &tft;
 LGFX_Sprite s_frame(&tft);
@@ -70,26 +67,22 @@ int measureGfxHeight(const lgfx::GFXfont& font) {
   return tft.fontHeight();
 }
 
-int measureVlwHeight(float size) {
-  tft.setTextSize(size);
-  return tft.fontHeight();
+/** Font sizes for the active text size step (portal setting). */
+const radar::FontStepFonts& stepFonts() {
+  constexpr size_t kStepCount =
+      sizeof(radar::kFontStepFonts) / sizeof(radar::kFontStepFonts[0]);
+  const uint8_t step = radar::fontStep();
+  return radar::kFontStepFonts[step < kStepCount ? step : 0];
 }
 
-float findVlwSizeForHeight(int target_px) {
-  float lo = 0.25f;
-  float hi = 1.2f;
-  for (int i = 0; i < 16; ++i) {
-    const float mid = (lo + hi) * 0.5f;
-    if (measureVlwHeight(mid) < target_px) {
-      lo = mid;
-    } else {
-      hi = mid;
-    }
+/** Smooth fonts draw at their native size; the bitmap fallback picks by height. */
+void applyRoleStyle(size_t font_index, const lgfx::GFXfont* fallback) {
+  if (displayFontIsSmooth()) {
+    displayFontEnsureLoaded(*s_draw, font_index);
+  } else {
+    displayFontSetBitmap(*s_draw, fallback);
   }
-  return hi;
 }
-
-void applyScaleStyle();
 
 const lgfx::GFXfont* pickGfxFontClosest(
     int target_px, const lgfx::GFXfont* const* candidates, size_t count) {
@@ -111,43 +104,13 @@ void initLabelMetrics() {
     return;
   }
 
-  const int cardinal_target = radar::kCardinalLabelHeightPx;
-
-  if (displayFontIsSmooth()) {
-    s_cardinal_use_vlw = true;
-    s_cardinal_vlw_size = findVlwSizeForHeight(cardinal_target);
-    const int cardinal_h = measureVlwHeight(s_cardinal_vlw_size);
-    const int scale_target = cardinal_h - radar::kScaleBelowCardinalPx;
-    s_scale_use_vlw = true;
-    s_scale_vlw_size = findVlwSizeForHeight(scale_target);
-  } else {
-    const lgfx::GFXfont* cardinal_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                                  &fonts::FreeSansBold9pt7b};
+  if (!displayFontIsSmooth()) {
+    const lgfx::GFXfont* candidates[] = {&fonts::FreeSansBold12pt7b,
+                                         &fonts::FreeSansBold9pt7b};
     s_cardinal_gfx =
-        pickGfxFontClosest(cardinal_target, cardinal_candidates, 2);
-    s_cardinal_use_vlw = false;
-
-    const int cardinal_h = measureGfxHeight(*s_cardinal_gfx);
-    const int scale_target = cardinal_h - radar::kScaleBelowCardinalPx;
-    const lgfx::GFXfont* scale_candidates[] = {&fonts::FreeSansBold9pt7b,
-                                               &fonts::FreeSansBold12pt7b};
-    s_scale_gfx = pickGfxFontClosest(scale_target, scale_candidates, 2);
-    s_scale_use_vlw = false;
-  }
-
-  applyScaleStyle();
-  s_scale_label_h = tft.fontHeight();
-  s_scale_label_max_w = 0;
-  char label[12];
-  for (size_t i = 0; i < radar::kRangePresetCount; ++i) {
-    for (bool miles : {false, true}) {
-      radar::formatRing3Label(label, sizeof(label), radar::kRangePresets[i].ring3_km,
-                              miles);
-      const int w = tft.textWidth(label);
-      if (w > s_scale_label_max_w) {
-        s_scale_label_max_w = w;
-      }
-    }
+        pickGfxFontClosest(kUiFontPx[stepFonts().cardinal], candidates, 2);
+    s_scale_gfx =
+        pickGfxFontClosest(kUiFontPx[stepFonts().scale], candidates, 2);
   }
 
   s_label_metrics_ready = true;
@@ -158,18 +121,22 @@ void initTagLabelMetrics() {
     return;
   }
 
-  const int target = radar::kAircraftTagLabelHeightPx;
-  if (displayFontIsSmooth()) {
-    s_tag_use_vlw = true;
-    s_tag_vlw_size = findVlwSizeForHeight(target);
-  } else {
-    const lgfx::GFXfont* tag_candidates[] = {&fonts::FreeSansBold12pt7b,
-                                               &fonts::FreeSansBold9pt7b};
-    s_tag_gfx = pickGfxFontClosest(target, tag_candidates, 2);
-    s_tag_use_vlw = false;
+  if (!displayFontIsSmooth()) {
+    const lgfx::GFXfont* candidates[] = {&fonts::FreeSansBold12pt7b,
+                                         &fonts::FreeSansBold9pt7b};
+    s_tag_gfx = pickGfxFontClosest(kUiFontPx[stepFonts().tag], candidates, 2);
   }
 
   s_tag_label_metrics_ready = true;
+}
+
+/**
+ * GC9A01 modules with a BGR panel need R and B swapped for a colour to come out
+ * as intended. The aircraft red is the one the hardware is known to render
+ * correctly, so every colour added since goes through the same correction.
+ */
+uint16_t panelColor(uint8_t r, uint8_t g, uint8_t b) {
+  return config::kDisplayRgbOrder ? tft.color565(b, g, r) : tft.color565(r, g, b);
 }
 
 void initPalette() {
@@ -240,11 +207,6 @@ int distSqFromCenter(int x, int y) {
   const int dx = x - radar::kCenterX;
   const int dy = y - radar::kCenterY;
   return dx * dx + dy * dy;
-}
-
-bool isInsideOuterRing(int x, int y) {
-  const int max_r = radar::kGridOuterRadius - radar::kAircraftInsideRingInsetPx;
-  return distSqFromCenter(x, y) <= max_r * max_r;
 }
 
 /** Rim dot from true bearing; always on screen edge (even if target is 50+ km away). */
@@ -321,14 +283,29 @@ int speedLineLengthPx(float gs_knots) {
   return len;
 }
 
-void noseTip(int cx, int cy, float heading_deg, int* tip_x, int* tip_y) {
-  constexpr float kDegToRad = 0.01745329252f;
-  const float rad = heading_deg * kDegToRad;
-  *tip_x = cx + static_cast<int>(lroundf(sinf(rad) * radar::kAircraftNoseLenPx));
-  *tip_y = cy - static_cast<int>(lroundf(cosf(rad) * radar::kAircraftNoseLenPx));
+/** Silhouette for this aircraft, honouring the per-class icon setting. */
+const radar::AircraftShape& shapeFor(uint8_t klass) {
+  if (!radar::showClassIcons() || klass >= radar::kAircraftShapeCount) {
+    return radar::kAircraftShapes[radar::kAircraftShapeDefault];
+  }
+  return radar::kAircraftShapes[klass];
 }
 
-void drawHeadingTriangle(int cx, int cy, float heading_deg, uint16_t color) {
+bool drawsRotor(uint8_t klass) {
+  return radar::showClassIcons() &&
+         klass == static_cast<uint8_t>(util::aircraft::Klass::kRotor);
+}
+
+void noseTip(int cx, int cy, float heading_deg, int nose_len, int* tip_x,
+             int* tip_y) {
+  constexpr float kDegToRad = 0.01745329252f;
+  const float rad = heading_deg * kDegToRad;
+  *tip_x = cx + static_cast<int>(lroundf(sinf(rad) * nose_len));
+  *tip_y = cy - static_cast<int>(lroundf(cosf(rad) * nose_len));
+}
+
+void drawHeadingTriangle(int cx, int cy, float heading_deg,
+                         const radar::AircraftShape& shape, uint16_t color) {
   constexpr float kDegToRad = 0.01745329252f;
   const float rad = heading_deg * kDegToRad;
   const float sin_h = sinf(rad);
@@ -336,22 +313,45 @@ void drawHeadingTriangle(int cx, int cy, float heading_deg, uint16_t color) {
 
   int tip_x = 0;
   int tip_y = 0;
-  noseTip(cx, cy, heading_deg, &tip_x, &tip_y);
+  noseTip(cx, cy, heading_deg, shape.nose, &tip_x, &tip_y);
 
   const int base_x =
-      cx - static_cast<int>(lroundf(sin_h * static_cast<float>(radar::kAircraftTailLenPx)));
+      cx - static_cast<int>(lroundf(sin_h * static_cast<float>(shape.tail)));
   const int base_y =
-      cy + static_cast<int>(lroundf(cos_h * static_cast<float>(radar::kAircraftTailLenPx)));
+      cy + static_cast<int>(lroundf(cos_h * static_cast<float>(shape.tail)));
 
-  const int wing_x = static_cast<int>(lroundf(cos_h * radar::kAircraftTailHalfPx));
-  const int wing_y = static_cast<int>(lroundf(sin_h * radar::kAircraftTailHalfPx));
+  const int wing_x = static_cast<int>(lroundf(cos_h * shape.half));
+  const int wing_y = static_cast<int>(lroundf(sin_h * shape.half));
 
   s_draw->fillTriangle(tip_x, tip_y, base_x + wing_x, base_y + wing_y,
                        base_x - wing_x, base_y - wing_y, color);
 }
 
+/** Rotor disc with two blades: the one silhouette that reads at any heading. */
+void drawRotor(int cx, int cy, float heading_deg, uint16_t color) {
+  constexpr float kDegToRad = 0.01745329252f;
+  s_draw->fillSmoothCircle(cx, cy, radar::kRotorDiscRadiusPx, color);
+  for (int i = 0; i < 2; ++i) {
+    const float rad = (heading_deg + i * 90.0f) * kDegToRad;
+    const int dx =
+        static_cast<int>(lroundf(sinf(rad) * radar::kRotorBladeLenPx));
+    const int dy =
+        static_cast<int>(lroundf(cosf(rad) * radar::kRotorBladeLenPx));
+    s_draw->drawLine(cx - dx, cy + dy, cx + dx, cy - dy, color);
+  }
+}
+
+void drawAircraftSymbol(int cx, int cy, const services::adsb::Aircraft& plane,
+                        uint16_t color) {
+  if (drawsRotor(plane.klass)) {
+    drawRotor(cx, cy, plane.nose_deg, color);
+    return;
+  }
+  drawHeadingTriangle(cx, cy, plane.nose_deg, shapeFor(plane.klass), color);
+}
+
 void drawSpeedVector(int cx, int cy, float heading_deg, float track_deg,
-                     float gs_knots, uint16_t color) {
+                     float gs_knots, int nose_len, uint16_t color) {
   const int len = speedLineLengthPx(gs_knots);
   if (len <= 0) {
     return;
@@ -359,7 +359,7 @@ void drawSpeedVector(int cx, int cy, float heading_deg, float track_deg,
 
   int tip_x = 0;
   int tip_y = 0;
-  noseTip(cx, cy, heading_deg, &tip_x, &tip_y);
+  noseTip(cx, cy, heading_deg, nose_len, &tip_x, &tip_y);
 
   constexpr float kDegToRad = 0.01745329252f;
   const float rad = track_deg * kDegToRad;
@@ -373,19 +373,40 @@ void drawSpeedVector(int cx, int cy, float heading_deg, float track_deg,
                        color);
 }
 
-void applyTagStyle() {
-  if (s_tag_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_tag_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_tag_gfx);
+void applyTagStyle() { applyRoleStyle(stepFonts().tag, s_tag_gfx); }
+
+/**
+ * Top tag line: the operator's name when the callsign is an airline flight
+ * ("DLH4AB" -> "Lufthansa"), otherwise the callsign as received. Registrations
+ * and bare hex ids are left alone.
+ *
+ * Copied into a buffer and cut to kAircraftTagMaxWidthPx, because a long name
+ * beside an aircraft near the rim would otherwise cover the radar.
+ */
+void tagTitle(const services::adsb::Aircraft& plane, char* out, size_t out_len) {
+  out[0] = '\0';
+  if (out_len == 0) {
+    return;
+  }
+
+  const char* name = data::airlines::nameForCallsign(plane.callsign);
+  const char* source = (name != nullptr) ? name : plane.callsign;
+  strncpy(out, source, out_len - 1);
+  out[out_len - 1] = '\0';
+
+  applyTagStyle();
+  size_t len = strlen(out);
+  while (len > 1 && s_draw->textWidth(out) > radar::kAircraftTagMaxWidthPx) {
+    out[--len] = '\0';
   }
 }
 
-int measureTagBlockWidth(const services::adsb::Aircraft& plane) {
+int measureTagBlockWidth(const services::adsb::Aircraft& plane,
+                         const char* title) {
   applyTagStyle();
   int max_w = 0;
-  if (plane.callsign[0] != '\0') {
-    const int w = s_draw->textWidth(plane.callsign);
+  if (title != nullptr && title[0] != '\0') {
+    const int w = s_draw->textWidth(title);
     if (w > max_w) {
       max_w = w;
     }
@@ -409,13 +430,16 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   initTagLabelMetrics();
   applyTagStyle();
 
+  char title[data::airlines::kMaxNameLen + 1];
+  tagTitle(plane, title, sizeof(title));
+
   const int line_h = s_draw->fontHeight();
-  const int block_w = measureTagBlockWidth(plane);
+  const int block_w = measureTagBlockWidth(plane, title);
   const int block_h = line_h * 3;
   int ly = y - block_h / 2;
 
-  const int symbol_half =
-      radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
+  const radar::AircraftShape& shape = shapeFor(plane.klass);
+  const int symbol_half = shape.nose + shape.half;
   // West (left): tag toward center on the right; east (right): tag on the left.
   const bool tag_on_right = x < radar::kCenterX;
   int anchor_x = 0;
@@ -430,9 +454,9 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   }
   ly = std::max(1, std::min(ly, radar::kSize - block_h - 1));
 
-  if (plane.callsign[0] != '\0') {
+  if (title[0] != '\0') {
     s_draw->setTextColor(radar::kColorLabel, radar::kColorBackground);
-    s_draw->drawString(plane.callsign, anchor_x, ly);
+    s_draw->drawString(title, anchor_x, ly);
   }
   ly += line_h;
 
@@ -445,6 +469,41 @@ void drawAircraftTag(int x, int y, const services::adsb::Aircraft& plane) {
   if (plane.alt[0] != '\0') {
     s_draw->setTextColor(radar::kColorTagAltitude, radar::kColorBackground);
     s_draw->drawString(plane.alt, anchor_x, ly);
+  }
+}
+
+/**
+ * Thin grey tail through the aircraft's recent positions, oldest first, ending
+ * at the symbol. Drawn before every symbol so tails never cover traffic.
+ */
+void drawTrail(const services::adsb::Aircraft& plane, int x, int y) {
+  ui::trails::Point history[radar::kTrailDrawPoints];
+  const size_t count =
+      ui::trails::historyFor(plane.hex, history, radar::kTrailDrawPoints);
+  if (count == 0) {
+    return;
+  }
+
+  const uint16_t color =
+      s_draw->color565(radar::kTrailGrey, radar::kTrailGrey, radar::kTrailGrey);
+  int prev_x = 0;
+  int prev_y = 0;
+  latLonToScreen(history[0].lat, history[0].lon, &prev_x, &prev_y);
+  for (size_t i = 1; i <= count; ++i) {
+    int next_x = x;
+    int next_y = y;
+    if (i < count) {
+      latLonToScreen(history[i].lat, history[i].lon, &next_x, &next_y);
+    }
+    // A tail entering the ring from outside would otherwise cut across the grid.
+    if (distSqFromCenter(prev_x, prev_y) <=
+            radar::kGridOuterRadius * radar::kGridOuterRadius &&
+        distSqFromCenter(next_x, next_y) <=
+            radar::kGridOuterRadius * radar::kGridOuterRadius) {
+      s_draw->drawLine(prev_x, prev_y, next_x, next_y, color);
+    }
+    prev_x = next_x;
+    prev_y = next_y;
   }
 }
 
@@ -532,13 +591,21 @@ void drawAircraft() {
   }
 
   sortDrawItemsFarFirst(items, draw_count);
+  if (radar::showTrails()) {
+    for (size_t d = 0; d < draw_count; ++d) {
+      drawTrail(planes[items[d].index], items[d].x, items[d].y);
+    }
+  }
   for (size_t d = 0; d < draw_count; ++d) {
     const size_t i = items[d].index;
     const int x = items[d].x;
     const int y = items[d].y;
-    drawSpeedVector(x, y, planes[i].nose_deg, planes[i].track_deg,
-                    planes[i].gs_knots, radar::kColorTrackVector);
-    drawHeadingTriangle(x, y, planes[i].nose_deg, radar::kColorAircraft);
+    if (radar::showTrackVectors()) {
+      drawSpeedVector(x, y, planes[i].nose_deg, planes[i].track_deg,
+                      planes[i].gs_knots, shapeFor(planes[i].klass).nose,
+                      radar::kColorTrackVector);
+    }
+    drawAircraftSymbol(x, y, planes[i], radar::kColorAircraft);
   }
   for (size_t d = 0; d < draw_count; ++d) {
     const size_t i = items[d].index;
@@ -547,20 +614,10 @@ void drawAircraft() {
 }
 
 void applyCardinalStyle() {
-  if (s_cardinal_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_cardinal_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_cardinal_gfx);
-  }
+  applyRoleStyle(stepFonts().cardinal, s_cardinal_gfx);
 }
 
-void applyScaleStyle() {
-  if (s_scale_use_vlw) {
-    displayFontSetSmoothSize(*s_draw, s_scale_vlw_size);
-  } else {
-    displayFontSetBitmap(*s_draw, s_scale_gfx);
-  }
-}
+void applyScaleStyle() { applyRoleStyle(stepFonts().scale, s_scale_gfx); }
 
 void drawCardinalLabel(const char* text, int x, int y, textdatum_t datum) {
   applyCardinalStyle();
@@ -643,7 +700,6 @@ template <typename Gfx>
 void drawStaticGrid(Gfx& gfx) {
   initLabelMetrics();
   const DrawScope scope(gfx);
-  displayFontEnsureLoaded(gfx);
   const int cx = radar::kCenterX;
   const int cy = radar::kCenterY;
   const int grid_r = radar::kGridOuterRadius;
@@ -686,6 +742,74 @@ void renderFrame() {
 }
 
 }  // namespace
+
+namespace {
+
+uint16_t alertColor(alert::Kind kind) {
+  switch (kind) {
+    case alert::Kind::kEmergency:
+      return panelColor(radar::kAlertEmergencyR, radar::kAlertEmergencyG,
+                        radar::kAlertEmergencyB);
+    case alert::Kind::kMilitary:
+      return panelColor(radar::kAlertMilitaryR, radar::kAlertMilitaryG,
+                        radar::kAlertMilitaryB);
+    default:
+      return panelColor(radar::kAlertNotableR, radar::kAlertNotableG,
+                        radar::kAlertNotableB);
+  }
+}
+
+/** One ring of the pulse, drawn straight onto the panel over the last frame. */
+void drawAlertRing(int radius, uint16_t color) {
+  const int thickness =
+      std::max(1, static_cast<int>(radar::kAlertRingHalfWidth * 2.0f));
+  for (int i = 0; i < thickness && radius - i > 0; ++i) {
+    tft.drawCircle(radar::kCenterX, radar::kCenterY, radius - i, color);
+  }
+}
+
+}  // namespace
+
+void radarDisplayPlayAlert(void (*poll_fn)()) {
+  const alert::Kind kind = alert::consume();
+  const uint8_t seconds = radar::alertSeconds();
+  // The animation redraws from the cached frame, so it needs one to exist.
+  if (kind == alert::Kind::kNone || seconds == 0 || !s_frame_ready) {
+    return;
+  }
+
+  const uint16_t color = alertColor(kind);
+  const unsigned long total_ms = static_cast<unsigned long>(seconds) * 1000UL;
+  const unsigned long start = millis();
+  const int rim = radar::kCenterX - radar::kBeyondRingScreenMarginPx;
+
+  unsigned long elapsed = 0;
+  while (elapsed < total_ms) {
+    // A ring sweeping out from the centre, restarting every kAlertPulseMs.
+    const float phase =
+        static_cast<float>(elapsed % radar::kAlertPulseMs) / radar::kAlertPulseMs;
+    const int radius = static_cast<int>(phase * rim);
+
+    s_frame.pushSprite(0, 0);
+    if (radius > 1) {
+      drawAlertRing(radius, color);
+    }
+
+    if (poll_fn != nullptr) {
+      poll_fn();
+    }
+    delay(radar::kAlertFrameMs);
+    elapsed = millis() - start;
+  }
+
+  // Leave the plain radar behind, whatever the animation was mid-way through.
+  s_frame.pushSprite(0, 0);
+}
+
+void radarDisplayInvalidateStyle() {
+  s_label_metrics_ready = false;
+  s_tag_label_metrics_ready = false;
+}
 
 void radarDisplayDraw() {
   initPalette();

@@ -10,6 +10,7 @@
 #include "config.h"
 #include "hardware/display.h"
 #include "hardware/display_font.h"
+#include "services/wifi_setup.h"
 
 namespace {
 
@@ -50,19 +51,30 @@ struct TextLine {
   const lgfx::GFXfont* gfx_font;
 };
 
+/**
+ * Status screens scale the largest embedded font: they are short-lived and
+ * their text is far bigger than the radar labels, so the coarser scaling does
+ * not show. Pin the size explicitly — the radar leaves whichever font its own
+ * labels last needed loaded on the panel.
+ */
+void setSmoothSize(float size) {
+  displayFontEnsureLoaded(tft, kUiFont15);
+  displayFontSetSmoothSize(tft, size);
+}
+
 int lineHeightGfx(const lgfx::GFXfont* font) {
   displayFontSetBitmap(tft, font);
   return tft.fontHeight();
 }
 
 int lineHeightVlw(float size) {
-  displayFontSetSmoothSize(tft, size);
+  setSmoothSize(size);
   return tft.fontHeight();
 }
 
 void applyLineStyle(const TextLine& line) {
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(tft, line.vlw_size);
+    setSmoothSize(line.vlw_size);
   } else {
     displayFontSetBitmap(tft, line.gfx_font);
   }
@@ -100,7 +112,7 @@ constexpr float kConnectingDetailVlw = 0.92f;
 
 void applyConnectingDetailStyle() {
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(tft, kConnectingDetailVlw);
+    setSmoothSize(kConnectingDetailVlw);
   } else {
     displayFontSetBitmap(tft, &kConnectingGfxDetail);
   }
@@ -207,13 +219,16 @@ void statusScreenConnectingTick() {
 }
 
 void statusScreenPortal() {
+  // The setup AP is WPA2-protected, so its password has to be readable here.
   const TextLine lines[] = {
-      {"Wi-Fi setup", 1.15f, &kPortalGfxTitle},
-      {"1. Join network:", 1.05f, &kPortalGfxBody},
-      {config::kPortalApName, 1.12f, &kPortalGfxEmphasis},
-      {"2. Open in browser:", 1.05f, &kPortalGfxBody},
-      {config::kPortalHostUrl, 1.12f, &kPortalGfxEmphasis},
-      {"or 192.168.4.1", 1.0f, &kPortalGfxBody},
+      {"Wi-Fi setup", 1.05f, &kPortalGfxTitle},
+      {"1. Join network:", 0.95f, &kPortalGfxBody},
+      {config::kPortalApName, 1.02f, &kPortalGfxEmphasis},
+      {"Password:", 0.95f, &kPortalGfxBody},
+      {wifiSetupApPassword(), 1.02f, &kPortalGfxEmphasis},
+      {"2. Open in browser:", 0.95f, &kPortalGfxBody},
+      {config::kPortalHostUrl, 1.02f, &kPortalGfxEmphasis},
+      {"or 192.168.4.1", 0.9f, &kPortalGfxBody},
   };
   drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
                 sizeof(lines) / sizeof(lines[0]));
