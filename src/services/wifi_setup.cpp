@@ -67,6 +67,7 @@ void ensureWifiManager();
 void startLanWebPortal();
 void stopLanWebPortal();
 bool wifiLinkUp();
+void applyTxPower();
 
 /** WPA2 minimum is 8 characters. */
 constexpr size_t kApPasswordLen = 8;
@@ -123,6 +124,18 @@ WiFiManagerParameter s_param_alert_sec(
     "alert_sec", "Alert flash seconds (0 = off, 3, 5 or 7)", "5",
     kAlertSecParamLen, s_alert_sec_attrs);
 
+char s_power_save_checkbox_attrs[32] = "type=\"checkbox\"";
+WiFiManagerParameter s_param_power_save(
+    "power_save", "Power saving (lower CPU clock, applies after restart)", "T",
+    2, s_power_save_checkbox_attrs, WFM_LABEL_AFTER);
+
+/** Two digits plus NUL for a dBm value out of kTxPowerChoices. */
+constexpr int kTxPowerParamLen = 3;
+char s_tx_power_attrs[64] = "";
+WiFiManagerParameter s_param_tx_power(
+    "tx_power", "Wi-Fi transmit power dBm (8 low, 13 medium, 19 high)", "8",
+    kTxPowerParamLen, s_tx_power_attrs);
+
 /** Digits plus NUL for a 1..kFontStepCount step number. */
 constexpr int kFontStepParamLen = 2;
 char s_font_step_attrs[48] = "";
@@ -167,6 +180,20 @@ void refreshPortalParamDefaults() {
            static_cast<unsigned>(ui::radar::alertSeconds()));
   s_param_alert_sec.setValue(alert_sec_buf, kAlertSecParamLen);
 
+  snprintf(s_power_save_checkbox_attrs, sizeof(s_power_save_checkbox_attrs),
+           "type=\"checkbox\"%s", ui::radar::powerSaving() ? " checked" : "");
+  s_param_power_save.setValue("T", 2);
+
+  snprintf(s_tx_power_attrs, sizeof(s_tx_power_attrs),
+           " type=\"number\" min=\"%u\" max=\"%u\" step=\"1\"",
+           static_cast<unsigned>(ui::radar::kTxPowerChoices[0]),
+           static_cast<unsigned>(
+               ui::radar::kTxPowerChoices[ui::radar::kTxPowerChoiceCount - 1]));
+  char tx_power_buf[kTxPowerParamLen + 1];
+  snprintf(tx_power_buf, sizeof(tx_power_buf), "%u",
+           static_cast<unsigned>(ui::radar::txPowerDbm()));
+  s_param_tx_power.setValue(tx_power_buf, kTxPowerParamLen);
+
   snprintf(s_font_step_attrs, sizeof(s_font_step_attrs),
            " type=\"number\" min=\"1\" max=\"%u\" step=\"1\"",
            static_cast<unsigned>(ui::radar::kFontStepCount));
@@ -187,6 +214,10 @@ void onPortalParamsSaved() {
   ui::radar::saveTrailsFromPortal(s_param_trails.getValue());
   ui::radar::saveClassIconsFromPortal(s_param_icons.getValue());
   ui::radar::saveAlertSecondsFromPortal(s_param_alert_sec.getValue());
+  ui::radar::savePowerSavingFromPortal(s_param_power_save.getValue());
+  ui::radar::saveTxPowerFromPortal(s_param_tx_power.getValue());
+  // Transmit power is the one setting that can take hold without a redraw.
+  applyTxPower();
   ui::radar::saveFontStepFromPortal(s_param_font_step.getValue());
   s_display_settings_changed = true;
 }
@@ -202,6 +233,8 @@ void attachPortalParams(WiFiManager& wm) {
   wm.addParameter(&s_param_icons);
   wm.addParameter(&s_param_alert_sec);
   wm.addParameter(&s_param_font_step);
+  wm.addParameter(&s_param_tx_power);
+  wm.addParameter(&s_param_power_save);
   wm.setSaveParamsCallback(onPortalParamsSaved);
 }
 
@@ -298,8 +331,29 @@ void onWebServerStarted() {
   }
 }
 
+/**
+ * Transmit power from the portal setting. The firmware has always run at
+ * 8.5 dBm — a cap that keeps the Super Mini's regulator out of trouble at the
+ * cost of link margin, which is the first thing to raise when the connection
+ * drops in a weak spot.
+ */
+void applyTxPower() {
+  wifi_power_t power = WIFI_POWER_8_5dBm;
+  switch (ui::radar::txPowerDbm()) {
+    case 13:
+      power = WIFI_POWER_13dBm;
+      break;
+    case 19:
+      power = WIFI_POWER_19_5dBm;
+      break;
+    default:
+      break;
+  }
+  WiFi.setTxPower(power);
+}
+
 void onConfigPortalApStarted(WiFiManager*) {
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  applyTxPower();
   statusScreenPortal();
 #ifdef WM_MDNS
   if (MDNS.begin(config::kPortalHostname)) {
@@ -365,7 +419,7 @@ void stopLanWebPortal() {
 }
 
 void prepareSta() {
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  applyTxPower();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(WIFI_PS_NONE);
   WiFi.setAutoReconnect(true);
@@ -560,10 +614,10 @@ void wifiResetCredentialsAndReboot() {
   esp_restart();
 }
 
-bool wifiReconnect() {
+bool wifiReconnect(bool show_ui) {
   initBootButton();
   Serial.println("WiFi reconnecting...");
-  return connectSavedNetwork(true);
+  return connectSavedNetwork(show_ui);
 }
 
 bool wifiConsumeDisplaySettingsChanged() {

@@ -1,120 +1,115 @@
-# Plane Radar
+# Plane Radar — extended firmware
 
 <img width="800" height="450" alt="plane-radar" src="https://github.com/user-attachments/assets/716d0992-dab8-47ba-8f1a-2aec7f607419" />
 
-**3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](https://github.com/MatixYo/ESP32-Plane-Radar/releases)
+A live aircraft radar on a 1.28″ round display. Point it at your home
+coordinates and it draws the planes actually flying overhead, updated every few
+seconds, on a sonar-style grid.
 
-Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with **WiFiManager** for first-time setup.
+> **This is a fork** of [MatixYo/ESP32-Plane-Radar](https://github.com/MatixYo/ESP32-Plane-Radar).
+> The hardware, the case and the original radar are theirs. What this fork adds
+> is listed below — it was designed and written with
+> [Claude Code](https://claude.com/claude-code) (Anthropic) and verified on real
+> hardware before each change was kept.
 
-## What it does
+---
 
-1. **Wi‑Fi setup** (if needed) — captive portal on AP **`PlaneRadar-Setup`**
-2. **Radar** — live aircraft from [adsb.fi](https://opendata.adsb.fi/) on a sonar-style grid
+## What this fork adds
 
-After Wi‑Fi is saved, the device reconnects automatically; the radar runs in the main loop with periodic ADS-B updates (~5 s).
+| | Change | Why it matters |
+|---|---|---|
+| 🔤 | **Sharp text at three sizes** | The original scaled one font down, which drops pixel rows and makes small labels ragged. Now four fonts are built into the firmware, one per size, so every label is drawn at its native size. Pick normal / small / smallest in the settings page. |
+| ✈️ | **Airline names instead of codes** | `DLH4AB` now reads `Lufthansa`. ~5 800 airlines are built in. Registrations and hex ids are left alone. |
+| 🚁 | **Symbols per aircraft class** | Helicopters get a rotor disc, wide-bodies a larger triangle. Only two outlines survive rotation at this size, so weight is carried by size instead of by shape. Switchable. |
+| 〰️ | **Flight trails** | Thin grey tail through each aircraft's last positions — roughly 20 seconds of history. Switchable. |
+| 🚨 | **Alert flash** | The radar pulses a coloured ring when an emergency squawk, a military aircraft or a rare type (A380, 747, An-124…) first appears. 3, 5 or 7 seconds, or off. |
+| 🔴 | **Direction lines can be switched off** | The line ahead of each aircraft is now optional. |
+| 🔒 | **Three security holes closed** | An **unauthenticated firmware-upload page** was reachable from the whole local network, along with remote credential wipe and reboot. The setup Wi-Fi was **open**. A malicious server could **crash the device on demand** with an oversized reply. See [Security](#security). |
+| 🌡️ | **Power saving and radio power** | Lower CPU clock (on by default) and a choice of Wi-Fi transmit power, for the trade-off between heat, range and stability. |
+| 📶 | **Rides out short Wi-Fi drops** | A brief hiccup no longer replaces the radar with the search screen. |
+| ✅ | **A five-stage quality pipeline** | Compiler warnings, host unit tests, static analysis, firmware build and a hardware checklist — all in CI. It has already caught real defects. See [docs/QUALITY.md](docs/QUALITY.md). |
 
-## Controls (BOOT, GPIO 9, active LOW)
+Everything switchable lives in the device's own settings page — no reflashing,
+no recompiling, and the changes take effect immediately.
 
-| Action | Effect |
-|--------|--------|
-| **Short tap** | Cycle range preset (5 → 10 → 15 → 25 km); saved to flash |
-| **Hold 3 s** | Clear Wi‑Fi, location, and units; reboot into setup portal |
+---
 
-During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
+## Getting started
 
-## Wi‑Fi setup portal
+**You need:** an ESP32-C3 Super Mini, a 1.28″ round GC9A01 display, a USB-C
+cable, and a Wi-Fi network. Wiring is in [Wiring](#wiring) below; the 3D case is
+on [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083).
 
-**First-time setup** (no saved Wi‑Fi):
+### 1. Put the firmware on the board
 
-1. Connect to **`PlaneRadar-Setup`** — the AP is WPA2-protected; its password is shown on the yellow setup screen (8 characters, derived from this device's MAC, so it never changes)
-2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the setup screen; captive portal may open automatically
-3. Set home Wi‑Fi, then save
+Download `firmware-merged.bin` from the newest successful
+[Build](../../actions/workflows/build.yml) (open the run, then **Artifacts**), or
+from [Releases](../../releases) if one is published.
 
-**Reconfigure anytime** (after the device is on your network):
+Open [esptool-js](https://espressif.github.io/esptool-js/) in **Chrome or Edge**
+(Firefox and Safari cannot talk to USB devices). Put the board into download
+mode — hold **BOOT**, tap **RESET**, release **BOOT** — then **Connect**, choose
+`firmware-merged.bin`, set the address to **`0x0`**, and **Program**. Tap
+**RESET** when it finishes.
 
-1. Open **`http://plane-radar.local`** or **`http://<device-ip>`** (e.g. from your router or serial log at boot)
-2. Change Wi‑Fi, location, units, or runway overlay; save
+### 2. Tell it your Wi-Fi and where you live
 
-The same portal runs on the setup AP and on the device’s LAN IP while connected to Wi‑Fi. mDNS hostname is `plane-radar` → **plane-radar.local** (`kPortalHostname` in `config.h`). Some clients resolve `.local` slowly; use the IP if needed.
+The screen turns yellow and shows a network name, a **password** and a web
+address.
 
-**Custom fields** (stored in NVS):
+1. Join the Wi-Fi network **`PlaneRadar-Setup`** using the password on screen.
+   It is eight characters, derived from your board, and never changes.
+2. Open **`http://plane-radar.local`** (or `http://192.168.4.1`).
+3. Enter your home Wi-Fi, then your latitude and longitude, and save.
 
-| Field | Purpose |
-|-------|---------|
-| **Latitude / Longitude** | Radar center and ADS-B query position (defaults in `config.h` until set) |
-| **Display distances in miles** | Ring scale label in **mi** instead of **km** (e.g. `6mi` vs `10km`) |
-| **Show airport runways** | Major-airport runway overlay on the radar (off to hide) |
-| **Show aircraft direction lines** | Track/speed vector ahead of each aircraft symbol (off to hide) |
-| **Text size** | `1` normal, `2` small, `3` smallest — picks a smaller embedded font for every label |
-| **Show flight trails** | Thin grey tail through each aircraft's recent positions |
-| **Separate symbols for helicopters and heavies** | Per-class silhouettes instead of one triangle for everything |
+The radar appears within a few seconds.
+
+> Flashing wipes the stored settings, so you will do this again after every
+> firmware update. That is a property of the single-file flash image, not a bug.
+
+### 3. Change anything later
+
+Once it is on your network, open **`http://plane-radar.local`** from any device
+in the house. The same page carries every setting.
+
+**One tap on BOOT** cycles the range (5 → 10 → 15 → 25 km).
+**Holding BOOT for 3 seconds** erases Wi-Fi, location and all settings and
+returns to the setup screen.
+
+---
+
+## Settings reference
+
+Everything below is on the setup page and is remembered across reboots.
+
+| Setting | What it does |
+|---------|--------------|
+| **Latitude / Longitude** | Where the radar is centred, and the position it asks the ADS-B service about |
+| **Display distances in miles** | Ring labels in `mi` instead of `km` |
+| **Show airport runways** | Runway overlay for major airports |
+| **Show aircraft direction lines** | The line ahead of each aircraft showing heading and speed |
+| **Show flight trails** | Thin grey tail through recent positions |
+| **Separate symbols for helicopters and heavies** | Per-class silhouettes instead of one triangle |
 | **Alert flash seconds** | `0` off, or `3` / `5` / `7` — how long the radar pulses for a noteworthy aircraft |
+| **Text size** | `1` normal, `2` small, `3` smallest |
+| **Wi-Fi transmit power dBm** | `8` low (default), `13` medium, `19` high — see [Heat and stability](#heat-and-stability) |
+| **Power saving** | Lower CPU clock. On by default; takes effect at the next restart |
 
-After a reset, the device reboots and shows the setup screen immediately (no “Connecting” loop on stale credentials).
+---
 
-## Radar display
+## How the radar reads
 
-### Grid
+### The picture
 
-- Dark blue background, subdued green rings and crosshairs
-- White **N / S / E / W** at the bezel; range label on the **east** spoke (ring 3 = ¾ of outer radius)
-- White center dot
-
-Layout and colors: `include/ui/radar_theme.h`.
-
-### Range presets
-
-| Ring 3 label | Outer radius (aircraft scale) |
-|------------|-------------------------------|
-| 5 km / 3 mi | ~6.7 km |
-| 10 km / 6 mi | ~13.3 km (default) |
-| 15 km / 9 mi | ~20 km |
-| 25 km / 16 mi | ~33.3 km |
-
-Preset, units, overlays and text size persist across reboot (`planeradar` NVS namespace).
-
-### Text size
-
-Three steps, set in the Wi‑Fi setup portal, applied without a reboot.
-
-LovyanGFX draws a VLW glyph by mapping each source pixel to a `size_x` × `size_y`
-rectangle, so a font shown below its native size loses whole rows and columns of
-its anti-aliasing. Instead of scaling one font down, the firmware embeds one file
-per pixel size (15 / 13 / 11 / 9) and each label picks the file matching its
-target height, always drawn at scale 1.0. Sizes per role and step:
-`kFontStepFonts` in `include/ui/radar_theme.h`.
-
-Rebuild the font files (needs `pip install freetype-py`):
-
-```bash
-python3 scripts/build_ui_fonts.py
-```
-
-### Runways
-
-- Major airports from OurAirports (`large_airport`); all open runway strips in range (helipads excluded)
-- Teal runway lines with one ICAO label per airport (e.g. `KJFK`); toggle in the Wi‑Fi setup portal
-- Update the embedded list: `python3 scripts/build_large_airports.py`
-
-### Airline names
-
-- ICAO airline codes from [OpenFlights](https://openflights.org/data.html), used under the **Open Database License (ODbL)**
-- Rebuild: `python3 scripts/build_airlines.py` (~5 800 airlines, ~126 KB of flash)
-- Names are trimmed to 16 characters and cut further at draw time so a tag cannot cover the radar
-- The source data carries some stale records (a few codes still resolve to a predecessor airline)
-
-### Aircraft
-
-- **Inside the outer ring** — red heading triangle, magenta speed vector (clipped at the ring; toggle in the portal), callsign / type / altitude tags
-- **Outside the ring** (still within ADS-B fetch) — small **red dot on the screen rim** at the correct bearing (direction cue; not distance-accurate past the ring)
-- **Tags** — placed toward the **center**: west (left) → tag on the **right** of the symbol; east (right) → tag on the **left**
-- **Top tag line** — the operator's name when the callsign is an airline flight (`DLH4AB` → `Lufthansa`), otherwise the callsign as received. Registrations and bare hex ids are never reattributed. The flight number is not shown; the name replaces it.
-- **Trails** — thin grey line through the last few positions, ending at the symbol (about 20 s of history at the default fetch interval)
+Dark blue background, green rings and crosshairs, white **N / S / E / W** at the
+edge. The label on the east spoke gives the distance of the third ring.
+Aircraft further away than the outer ring show as a **dot on the rim**, in the
+right direction but not at the right distance.
 
 ### Aircraft symbols
 
-At 240 px only two outlines survive rotation, so weight class is carried by
-triangle size and shape only separates rotorcraft from fixed wing:
+At 240 pixels only two outlines survive rotation, so weight class is carried by
+size and shape only separates rotorcraft from fixed wing:
 
 | Class | Symbol | Chosen when |
 |-------|--------|-------------|
@@ -123,34 +118,75 @@ triangle size and shape only separates rotorcraft from fixed wing:
 | Heavy | large triangle | category `A5`, or a wide-body type code (`A388`, `B744`, …) |
 | Helicopter | rotor disc with blades | category `A7`, or a rotorcraft type code (`EC35`, `R44`, …) |
 
-`category`, `squawk`, `emergency` and `dbFlags` are all optional in the feed and
-most aircraft send none of them, so every rule falls back to the jet symbol
-rather than guessing. Type tables live in `src/util/aircraft_class.cpp`; they
-match exactly, never by prefix — `B47` is a Stratojet, `B47G` a Bell 47.
+The feed is inconsistent — `category`, `squawk`, `emergency` and `dbFlags` are
+all optional and most aircraft send none of them — so every rule falls back to
+the jet triangle rather than guessing. Type tables are in
+`src/util/aircraft_class.cpp` and match **exactly, never by prefix**: `B47` is a
+Stratojet, `B47G` a Bell 47.
+
+### Labels
+
+Three lines beside each symbol: operator, type, altitude. The first line shows
+the **airline name** when the callsign is an airline flight (`DLH4AB` →
+`Lufthansa`) and the callsign as received otherwise, so a registration like
+`D-EABC` is never reattributed to whichever airline shares its first three
+letters. The flight number is not shown — the name replaces it.
 
 ### Alerts
 
-The radar pulses a coloured ring outward for the configured number of seconds
-when something noteworthy first appears. Each aircraft fires once per visit;
-it has to leave and stay away for ten minutes before it can interrupt again.
+When something noteworthy first appears, a coloured ring pulses outward from the
+centre for the configured number of seconds. Each aircraft fires **once per
+visit**: it has to leave and stay away ten minutes before it can interrupt
+again.
 
-| Trigger | Colour |
-|---------|--------|
-| Emergency — squawk 7500 / 7600 / 7700, or a declared `emergency` | red |
-| Military — `dbFlags` bit 0 | amber |
-| Notable type — A380, 747, An-124/225, Beluga, C-5, Il-76 … | cyan |
+| Trigger | Colour | Detected from |
+|---------|--------|---------------|
+| Emergency | red | squawk 7500 (hijack), 7600 (radio failure), 7700 (general), or a declared `emergency` |
+| Military | amber | the feed's `dbFlags` military bit |
+| Notable type | cyan | the list below |
 
-The animation blocks the fetch loop while it runs; the Wi-Fi portal and the
-BOOT button keep being serviced every frame.
+**Notable types** (`kNotableTypes` in `src/util/aircraft_class.cpp`):
 
-As range decreases (or aircraft approach), targets move inward; beyond-ring dots become full symbols when they cross the outer ring.
+`A124` An-124 · `A225` An-225 · `A337` BelugaXL · `A388` **A380** ·
+`A3ST` Beluga · `A400` A400M · `AN22` An-22 · `B52` B-52 · `B703` Boeing 707 ·
+`B741`–`B748`, `B74D`, `B74R` **Boeing 747 family** · `B74S` Dreamlifter ·
+`C5M` C-5 Galaxy · `CONC` Concorde · `IL76`, `IL86`, `IL96` Ilyushin
 
-### ADS-B
+The list is deliberately short — a false alarm is more annoying than a miss.
+Adding a type is one line in that file.
 
-- Source: `https://opendata.adsb.fi/api/v3/`
-- Fetch radius: `ui::radar::fetchRadiusKm()` — scales with the active preset to roughly the screen edge (so rim dots have data)
-- Poll interval: `kAdsbFetchIntervalMs` (5 s) in `config.h`
-- Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
+### Where the data comes from
+
+[adsb.fi](https://opendata.adsb.fi/), polled every few seconds. The radius grows
+with the selected range so rim dots have something to show. Aircraft on the
+ground are hidden by default (`kAdsbShowGroundAircraft` in `include/config.h`).
+
+---
+
+## Heat and stability
+
+The board runs warm — around 70 °C on the chip is normal for a radio that never
+sleeps inside a closed printed case. It is well inside the part's rating, but
+two settings let you trade:
+
+**Power saving** (on by default) runs the core at 80 MHz instead of 160 MHz.
+That halves the core's dynamic power and changes nothing you can see: the SPI
+bus keeps its own clock, and the radar redraws only every few seconds. It
+applies at the next restart.
+
+**Wi-Fi transmit power** is capped at 8.5 dBm by default — inherited from the
+original, and a sensible cap for the Super Mini's small regulator. If the
+connection drops in a weak spot, raise it to 13 or 19 dBm. That costs current
+and therefore heat, so change one thing at a time.
+
+The chip temperature is written to the serial log every minute
+(115200 baud), so you can measure the effect rather than guess it.
+
+**Short Wi-Fi drops** no longer take the screen away: the radar stays up for the
+first 25 seconds of an outage while the ESP32's own auto-reconnect does its
+work. Only a longer outage brings up the connecting animation.
+
+---
 
 ## Security
 
@@ -159,86 +195,51 @@ aim is to keep the reachable surface as small as the feature set allows.
 
 | Measure | Why |
 |---------|-----|
-| Setup AP is WPA2-protected | An open AP lets anyone in radio range hand the radar a network of their choice. Password is MAC-derived, stable, and printed on the setup screen. |
-| `/update`, `/u`, `/erase`, `/restart` return 404 | WiFiManager registers an **unauthenticated OTA upload** plus credential-wipe and reboot endpoints on every portal, and links the OTA form from its default menu. Nothing here needs them: the partition table has no second OTA slot, and a credential reset is a 3 s BOOT hold on the device. The web-server callback runs before the library registers its routes, and ESP32's `WebServer` dispatches to the first match, so claiming the URIs there shadows them for good. |
-| No OTA partition | `partitions/plane_radar.csv` has a single app slot. Firmware changes require physical USB access. |
-| Response size cap (48 KB) | The C3 has 320 KB of RAM and the radar holds a 115 KB frame sprite. An oversized or endless response body would otherwise exhaust the heap and reboot the device. `Content-Length` is never trusted for the reservation. |
-| Strict portal input parsing | Coordinates, checkboxes and the text-size step are validated in `include/util/`; a malformed field leaves the stored setting untouched. Covered by host tests (stage 2 of the [quality pipeline](docs/QUALITY.md)). |
+| `/update`, `/u`, `/erase`, `/restart` return 404 | WiFiManager registers an **unauthenticated firmware-upload page** plus credential-wipe and reboot endpoints on every portal, and links the upload form from its menu. Its own authentication hook is a no-op in 2.0.17. Nothing here needs those routes: there is no second firmware slot to write into, and a credential reset is a 3 s BOOT hold. The web-server callback runs before the library registers its routes and ESP32's `WebServer` uses the first match, so claiming the URIs there shadows them for good. |
+| Setup AP is WPA2-protected | An open AP lets anyone in radio range hand the radar a network of their choice. The password is derived from the board's MAC, so it is stable and printable on the setup screen. |
+| No over-the-air updates | A single app partition. Firmware changes need physical USB access. |
+| Response size cap (48 KB) | The chip has 320 KB of RAM and the radar holds a 115 KB frame buffer. An oversized or endless reply would otherwise exhaust the heap and reboot the device on demand. The server's `Content-Length` is never trusted for the reservation. |
+| Strict input parsing | Coordinates, checkboxes and every number field are validated in `include/util/`; a malformed field leaves the stored setting untouched. Covered by host tests. |
 
-**Known gap:** the ADS-B fetch uses `client.setInsecure()` — the server's
-certificate is not validated. A network attacker can therefore read the
-configured coordinates out of the request URL and feed fabricated aircraft to
-the display. It cannot reach further: the JSON parser is bounded, every string
-copy is length-checked, and the response is capped. Fixing it means pinning
-adsb.fi's root CA, which trades this exposure for a device that stops fetching
-whenever that CA rotates.
+**Known gap:** the ADS-B request does not verify the server's certificate
+(`client.setInsecure()`). Someone able to manipulate your network traffic can
+read your configured coordinates out of the request and feed fabricated aircraft
+to the display. It cannot reach further — the parser is bounded, every string
+copy is length-checked, and the reply is capped. Fixing it means pinning
+adsb.fi's root certificate, which trades this exposure for a device that stops
+fetching whenever that certificate is rotated. Documented rather than decided
+silently.
+
+**Also open by design:** anyone already on your network can change the settings.
+WiFiManager offers no working authentication, so the only real alternatives are
+a time-limited settings page or none at all.
+
+---
 
 ## Quality pipeline
 
-Five stages, cheapest first — compiler warnings, host unit tests, static
-analysis, firmware build, and a hardware smoke-test checklist. See
-[docs/QUALITY.md](docs/QUALITY.md). Run the host tests with `pio test -e native`.
+Five stages, cheapest first — see [docs/QUALITY.md](docs/QUALITY.md) for the
+detail and the hardware checklist.
 
-## Configuration
+1. **Compiler warnings** — `-Wall -Wextra`; CI fails on any warning in this
+   project's own code.
+2. **Host unit tests** — `pio test -e native`, 19 cases over the input parsers,
+   the callsign parser, the aircraft classifier and the alert rules. They run on
+   the build machine, so hostile and malformed inputs are exercised without a
+   board.
+3. **Static analysis** — cppcheck over `src/` and `include/`, failing on any
+   finding.
+4. **Firmware build** — plus the web-flashable image, published as an artifact.
+5. **Hardware smoke test** — a written checklist for what no machine can see.
 
-Edit **`include/config.h`** for hardware and behavior:
+It has already earned its keep: stage 1 found dead code carrying the wrong
+safety margin, stage 3 found a portability bug in the trail store, and two
+defects in the test harness itself surfaced — including assertions that silently
+compared nothing.
 
-| Area | Keys / notes |
-|------|----------------|
-| Portal | `kPortalApName`, `kPortalIp`, `kPortalHostname` / `kPortalHostUrl` (mDNS; needs `-DWM_MDNS` in `platformio.ini`) |
-| Wi‑Fi timing | connect attempts, reconnect grace, portal timeout (`0` = no timeout) |
-| BOOT | `kBootPin`, `kBootResetHoldMs`, `kBootTapMinMs` |
-| Display SPI | pins, `kDisplayInvert`, `kDisplayRgbOrder`, `kDisplaySpiWriteHz` |
-| Default location | `kDefaultRadarLat`, `kDefaultRadarLon` (until portal overrides) |
-| ADS-B | `kAdsbFetchIntervalMs`, `kAdsbShowGroundAircraft` |
+---
 
-Range presets: `include/ui/radar_range.h` (`kRangePresets`).
-
-## Project layout
-
-```
-include/
-  config.h
-  util/                    — Arduino-free helpers (host-testable)
-  hardware/
-    lgfx_config.hpp
-    display.h
-    display_font.h
-  data/
-    large_airports.h
-  ui/
-    radar_theme.h
-    radar_range.h
-    radar_display.h
-    runway_overlay.h
-    status_screens.h
-  services/
-    wifi_setup.h
-    radar_location.h
-    adsb_client.h
-data/
-  ui_font_15.vlw           — embedded smooth UI fonts (Noto Sans SemiBold),
-  ui_font_13.vlw             one per native pixel size
-  ui_font_11.vlw
-  ui_font_9.vlw
-scripts/
-  build_large_airports.py
-  build_ui_fonts.py
-  build_airlines.py
-test/
-  test_util/               — host unit tests (pio test -e native)
-docs/
-  QUALITY.md
-src/
-  main.cpp
-  data/
-    large_airports_data.cpp
-  hardware/
-  ui/
-  services/
-```
-
-## Wiring (GC9A01 ↔ ESP32-C3 Super Mini)
+## Wiring
 
 | Display | ESP32-C3 |
 |---------|----------|
@@ -251,59 +252,66 @@ src/
 | SCL (SCLK) | GPIO **4** |
 | BOOT (user) | GPIO **9** |
 
-## Build
+---
+
+## Building it yourself
 
 ```bash
-pio run -t upload
-pio device monitor
+pio run -e supermini          # build
+pio run -t upload             # build and flash over USB
+pio device monitor            # serial log, 115200 baud
+pio test -e native            # host unit tests
 ```
 
-- PlatformIO env: **`supermini`**
-- Serial: **115200** baud
-- USB CDC on boot enabled in `platformio.ini` for the Super Mini
-
-### Web-flashable release image
-
-Single `.bin` for [esptool-js](https://espressif.github.io/esptool-js/) and similar tools (ESP32-C3, 4 MB, flash at **0x0**):
+Single-file image for a web flasher (ESP32-C3, 4 MB, flash at `0x0`):
 
 ```bash
-chmod +x scripts/merge-firmware.sh   # once
-./scripts/merge-firmware.sh
+pio run -e supermini && pio run -t merge -e supermini
+# -> .pio/build/supermini/firmware-merged.bin
 ```
 
-Writes `release/plane-radar-merged.bin`. Skip rebuild if firmware is already built:
+### Regenerating the built-in data
 
-```bash
-./scripts/merge-firmware.sh --no-build
+| Command | Produces | Source |
+|---------|----------|--------|
+| `python3 scripts/build_ui_fonts.py` | the four `.vlw` fonts | Noto Sans SemiBold (OFL) |
+| `python3 scripts/build_airlines.py` | the airline table | OpenFlights, **ODbL** |
+| `python3 scripts/build_large_airports.py` | the runway dataset | OurAirports |
+
+Fonts need `pip install freetype-py`. CI rebuilds the fonts and fails if they
+differ from what is committed. The airline table is not diffed, because it
+tracks a live upstream dataset.
+
+### Where things live
+
+```
+include/
+  config.h                 — pins, timing, defaults
+  util/                    — Arduino-free logic, covered by host tests
+  hardware/                — display and font plumbing
+  data/                    — generated tables (airports, airlines)
+  ui/                      — radar drawing, settings, alerts, trails
+  services/                — Wi-Fi portal, ADS-B client, location
+src/                       — the matching implementations
+data/                      — embedded font files
+scripts/                   — dataset and font generators
+test/test_util/            — host unit tests
+docs/QUALITY.md            — the five-stage pipeline and hardware checklist
 ```
 
-Or via PlatformIO only (output: `.pio/build/supermini/firmware-merged.bin`):
-
-```bash
-pio run -e supermini
-pio run -t merge -e supermini
-```
-
-Put the board in download mode (hold **BOOT**, tap **RESET**), then flash with Chrome/Edge over USB.
-
-### CI and releases (GitHub Actions)
+### CI
 
 | Workflow | When | Output |
 |----------|------|--------|
-| [Build](.github/workflows/build.yml) | Push / PR to `main` | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
-| [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | GitHub Release asset `plane-radar-v1.0.0.bin` + `.sha256` |
+| [Build](.github/workflows/build.yml) | push, PR, manual | `plane-radar-supermini` artifact with the flashable images |
+| [Quality](.github/workflows/quality.yml) | push, PR, manual | unit tests, static analysis, font regeneration check |
+| [Release](.github/workflows/release.yml) | git tag `v*` | release asset `plane-radar-v1.0.0.bin` + checksum |
 
-To ship a version users can download:
+---
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+## Credits and licence
 
-The release workflow builds firmware in CI and attaches the merged image to the release. Download from **Releases** on GitHub, then flash at **0x0** (ESP32-C3, 4 MB).
-
-## Dependencies
-
-- [LovyanGFX](https://github.com/lovyan03/LovyanGFX)
-- [WiFiManager](https://github.com/tzapu/WiFiManager)
-- [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
+- Original project: **[MatixYo/ESP32-Plane-Radar](https://github.com/MatixYo/ESP32-Plane-Radar)** — MIT licence, retained in [LICENSE](LICENSE). The hardware design, the case and the radar this fork builds on are theirs.
+- Aircraft data: [adsb.fi](https://opendata.adsb.fi/) · Airports: [OurAirports](https://ourairports.com/) · Airlines: [OpenFlights](https://openflights.org/data.html) (ODbL) · Font: Noto Sans (OFL)
+- Libraries: [LovyanGFX](https://github.com/lovyan03/LovyanGFX), [WiFiManager](https://github.com/tzapu/WiFiManager), [ArduinoJson](https://github.com/bblanchon/ArduinoJson)
+- The additions in this fork were designed and implemented with [Claude Code](https://claude.com/claude-code), then flashed and checked on hardware before being kept.

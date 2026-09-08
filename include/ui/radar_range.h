@@ -49,6 +49,18 @@ float fetchRadiusKm();
  */
 constexpr uint8_t kFontStepCount = 3;
 
+/**
+ * Wi-Fi transmit power steps the portal accepts, in dBm.
+ *
+ * The firmware has always run at 8.5 dBm — a deliberate cap that keeps the
+ * Super Mini's regulator out of trouble, at the cost of link margin. Raising it
+ * costs current (and therefore heat) but is the first thing to try when the
+ * connection drops in a weak spot.
+ */
+constexpr uint8_t kTxPowerChoices[] = {8, 13, 19};
+constexpr size_t kTxPowerChoiceCount =
+    sizeof(kTxPowerChoices) / sizeof(kTxPowerChoices[0]);
+
 /** Flash durations the portal accepts, in seconds; 0 turns alerts off. */
 constexpr uint8_t kAlertSecondsChoices[] = {0, 3, 5, 7};
 constexpr size_t kAlertSecondsChoiceCount =
@@ -65,6 +77,10 @@ bool showClassIcons();
 /** Flash duration in seconds; 0 = alerts off. */
 uint8_t alertSeconds();
 uint8_t fontStep();
+/** Lower CPU clock at boot; the radio is untouched. */
+bool powerSaving();
+/** Wi-Fi transmit power in dBm, one of kTxPowerChoices. */
+uint8_t txPowerDbm();
 /** WiFi portal checkbox: "T" = miles, otherwise km. */
 void saveMilesFromPortal(const char* checkbox_value);
 void saveRunwaysFromPortal(const char* checkbox_value);
@@ -75,6 +91,9 @@ void saveClassIconsFromPortal(const char* checkbox_value);
 void saveAlertSecondsFromPortal(const char* value);
 /** WiFi portal number field: 1..kFontStepCount, stored 0-based. */
 void saveFontStepFromPortal(const char* value);
+void savePowerSavingFromPortal(const char* checkbox_value);
+/** WiFi portal number field: one of kTxPowerChoices. */
+void saveTxPowerFromPortal(const char* value);
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles);
 void formatCurrentRing3Label(char* buf, size_t len);
 /** Reset display options to their defaults (e.g. with WiFi credential wipe). */

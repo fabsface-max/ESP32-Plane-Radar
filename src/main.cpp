@@ -5,6 +5,11 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#if __has_include(<driver/temp_sensor.h>)
+#include <driver/temp_sensor.h>
+#define PLANE_RADAR_HAS_TEMP_SENSOR 1
+#endif
+
 #include "config.h"
 #include "hardware/display.h"
 #include "services/adsb_client.h"
@@ -22,6 +27,44 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+unsigned long g_last_temp_log_ms = 0;
+
+/**
+ * Lower the core clock when power saving is on. 80 MHz is the lowest the Wi-Fi
+ * stack supports and leaves the SPI bus untouched, since the peripheral clock
+ * stays at 80 MHz either way. Applied once here: changing it while the radio is
+ * up is not worth the risk.
+ */
+void applyCpuClock() {
+  const uint32_t mhz = ui::radar::powerSaving() ? config::kCpuFreqSavingMhz
+                                                : config::kCpuFreqFullMhz;
+  setCpuFrequencyMhz(mhz);
+  Serial.printf("CPU clock: %u MHz (power saving %s)\n",
+                static_cast<unsigned>(getCpuFrequencyMhz()),
+                ui::radar::powerSaving() ? "on" : "off");
+}
+
+/** Chip temperature to the serial log, so power tuning can be measured. */
+void logChipTemperature() {
+  if (millis() - g_last_temp_log_ms < config::kTempLogIntervalMs) {
+    return;
+  }
+  g_last_temp_log_ms = millis();
+#ifdef PLANE_RADAR_HAS_TEMP_SENSOR
+  float celsius = 0.0f;
+  if (temp_sensor_read_celsius(&celsius) == ESP_OK) {
+    Serial.printf("Chip temperature: %.1f C\n", celsius);
+  }
+#endif
+}
+
+void initTemperatureSensor() {
+#ifdef PLANE_RADAR_HAS_TEMP_SENSOR
+  temp_sensor_config_t cfg = TSENS_CONFIG_DEFAULT();
+  temp_sensor_set_config(cfg);
+  temp_sensor_start();
+#endif
+}
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -98,12 +141,14 @@ void setup() {
   Serial.println("Plane Radar");
 
   bootButtonInit();
+  services::location::init();
+  ui::radar::rangeInit();
+  applyCpuClock();
+  initTemperatureSensor();
   displayInit();
   if (wifiShowsSetupScreenOnBoot()) {
     statusScreenPortal();
   }
-  services::location::init();
-  ui::radar::rangeInit();
   services::adsb::setPollFn(wifiLoop);
 
   if (wifiSetupConnect()) {
@@ -117,26 +162,33 @@ void loop() {
   applyDisplaySettingsIfChanged();
 
   if (WiFi.status() != WL_CONNECTED) {
-    if (g_radar_visible) {
-      Serial.println("WiFi lost — will reconnect");
-      g_radar_visible = false;
-    }
-
     if (g_wifi_down_since == 0) {
       g_wifi_down_since = millis();
+      Serial.println("WiFi lost - waiting for auto-reconnect");
     }
 
     const unsigned long down_ms = millis() - g_wifi_down_since;
+    // Home networks hiccup for a few seconds all the time. Leave the last
+    // radar picture up while that plays out; only an outage that outlasts
+    // kWifiConnectingScreenDelayMs is worth taking the screen away for.
+    const bool show_ui = down_ms >= config::kWifiConnectingScreenDelayMs;
+    if (show_ui && g_radar_visible) {
+      g_radar_visible = false;
+    }
+
     if (down_ms >= config::kWifiDownGraceMs &&
         millis() - g_last_reconnect_ms >= config::kWifiReconnectIntervalMs) {
       g_last_reconnect_ms = millis();
-      if (wifiReconnect()) {
+      if (wifiReconnect(show_ui)) {
         g_wifi_down_since = 0;
         showRadarIfConnected();
       }
     }
   } else {
-    g_wifi_down_since = 0;
+    if (g_wifi_down_since != 0) {
+      Serial.printf("WiFi back after %lu ms\n", millis() - g_wifi_down_since);
+      g_wifi_down_since = 0;
+    }
     if (!g_radar_visible) {
       showRadarIfConnected();
     } else if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
@@ -145,5 +197,6 @@ void loop() {
     }
   }
 
+  logChipTemperature();
   delay(10);
 }

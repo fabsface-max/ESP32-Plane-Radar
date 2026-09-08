@@ -20,7 +20,11 @@ constexpr char kPrefsFontStepKey[] = "fontStep";
 constexpr char kPrefsTrailsKey[] = "showTrails";
 constexpr char kPrefsIconsKey[] = "showIcons";
 constexpr char kPrefsAlertSecKey[] = "alertSec";
+constexpr char kPrefsPowerSaveKey[] = "powerSave";
+constexpr char kPrefsTxPowerKey[] = "txPower";
 constexpr uint8_t kDefaultAlertSeconds = 5;
+/** The value the firmware has always used. */
+constexpr uint8_t kDefaultTxPowerDbm = 8;
 constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
 constexpr float kKmPerMile = 1.609344f;
 
@@ -33,6 +37,8 @@ bool s_show_trails = true;
 bool s_show_class_icons = true;
 uint8_t s_alert_seconds = kDefaultAlertSeconds;
 uint8_t s_font_step = 0;
+bool s_power_saving = true;
+uint8_t s_tx_power_dbm = kDefaultTxPowerDbm;
 
 void saveRangeIndex() {
   if (!s_prefs.begin(kPrefsNamespace, false)) {
@@ -98,14 +104,31 @@ void saveAlertSeconds() {
   s_prefs.end();
 }
 
+void savePowerSaving() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putBool(kPrefsPowerSaveKey, s_power_saving);
+  s_prefs.end();
+}
+
+void saveTxPower() {
+  if (!s_prefs.begin(kPrefsNamespace, false)) {
+    return;
+  }
+  s_prefs.putUChar(kPrefsTxPowerKey, s_tx_power_dbm);
+  s_prefs.end();
+}
+
 /** A stored value from an older or corrupted record must not reach the UI. */
-uint8_t sanitizedAlertSeconds(uint8_t stored) {
-  for (uint8_t choice : kAlertSecondsChoices) {
-    if (stored == choice) {
+uint8_t sanitizedChoice(uint8_t stored, const uint8_t* choices, size_t count,
+                        uint8_t fallback) {
+  for (size_t i = 0; i < count; ++i) {
+    if (stored == choices[i]) {
       return stored;
     }
   }
-  return kDefaultAlertSeconds;
+  return fallback;
 }
 
 }  // namespace
@@ -122,8 +145,13 @@ void rangeInit() {
   s_show_track_vectors = s_prefs.getBool(kPrefsTrackKey, true);
   s_show_trails = s_prefs.getBool(kPrefsTrailsKey, true);
   s_show_class_icons = s_prefs.getBool(kPrefsIconsKey, true);
-  s_alert_seconds =
-      sanitizedAlertSeconds(s_prefs.getUChar(kPrefsAlertSecKey, kDefaultAlertSeconds));
+  s_alert_seconds = sanitizedChoice(
+      s_prefs.getUChar(kPrefsAlertSecKey, kDefaultAlertSeconds),
+      kAlertSecondsChoices, kAlertSecondsChoiceCount, kDefaultAlertSeconds);
+  s_power_saving = s_prefs.getBool(kPrefsPowerSaveKey, true);
+  s_tx_power_dbm = sanitizedChoice(
+      s_prefs.getUChar(kPrefsTxPowerKey, kDefaultTxPowerDbm), kTxPowerChoices,
+      kTxPowerChoiceCount, kDefaultTxPowerDbm);
   const uint8_t font_step = s_prefs.getUChar(kPrefsFontStepKey, 0);
   s_font_step = (font_step < kFontStepCount) ? font_step : 0;
   s_prefs.end();
@@ -156,6 +184,10 @@ bool showTrails() { return s_show_trails; }
 bool showClassIcons() { return s_show_class_icons; }
 
 uint8_t alertSeconds() { return s_alert_seconds; }
+
+bool powerSaving() { return s_power_saving; }
+
+uint8_t txPowerDbm() { return s_tx_power_dbm; }
 
 uint8_t fontStep() { return s_font_step; }
 
@@ -200,6 +232,23 @@ void saveAlertSecondsFromPortal(const char* value) {
   Serial.printf("Alert flash: %u s\n", static_cast<unsigned>(s_alert_seconds));
 }
 
+void savePowerSavingFromPortal(const char* checkbox_value) {
+  s_power_saving = util::portal::checkboxChecked(checkbox_value);
+  savePowerSaving();
+  Serial.printf("Power saving: %s (CPU clock applies after restart)\n",
+                s_power_saving ? "on" : "off");
+}
+
+void saveTxPowerFromPortal(const char* value) {
+  uint8_t dbm = 0;
+  if (!util::portal::oneOf(value, kTxPowerChoices, kTxPowerChoiceCount, &dbm)) {
+    return;
+  }
+  s_tx_power_dbm = dbm;
+  saveTxPower();
+  Serial.printf("WiFi TX power: %u dBm\n", static_cast<unsigned>(s_tx_power_dbm));
+}
+
 void saveFontStepFromPortal(const char* value) {
   // Portal shows 1..kFontStepCount; anything else keeps the stored step.
   uint8_t step = 0;
@@ -233,6 +282,8 @@ void unitsReset() {
   s_show_class_icons = true;
   s_alert_seconds = kDefaultAlertSeconds;
   s_font_step = 0;
+  s_power_saving = true;
+  s_tx_power_dbm = kDefaultTxPowerDbm;
   if (s_prefs.begin(kPrefsNamespace, false)) {
     s_prefs.remove(kPrefsMilesKey);
     s_prefs.remove(kPrefsRunwaysKey);
@@ -241,6 +292,8 @@ void unitsReset() {
     s_prefs.remove(kPrefsTrailsKey);
     s_prefs.remove(kPrefsIconsKey);
     s_prefs.remove(kPrefsAlertSecKey);
+    s_prefs.remove(kPrefsPowerSaveKey);
+    s_prefs.remove(kPrefsTxPowerKey);
     s_prefs.end();
   }
 }

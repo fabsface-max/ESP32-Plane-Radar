@@ -12,8 +12,13 @@ bool wifiShowsSetupScreenOnBoot();
 void wifiResetCredentialsAndReboot();
 /** Boot flow: connect with UI, open portal only if saved creds fail. */
 bool wifiSetupConnect();
-/** Reconnect using saved creds; never opens the captive portal. */
-bool wifiReconnect();
+/**
+ * Reconnect using saved creds; never opens the captive portal.
+ *
+ * @param show_ui replace the radar with the connecting animation. Short drops
+ *        are better ridden out with the last picture still on screen.
+ */
+bool wifiReconnect(bool show_ui);
 /** Keeps the LAN config portal alive; call every loop() iteration. */
 void wifiLoop();
 /** Latched: a portal save changed a display option, so the radar needs a redraw. */

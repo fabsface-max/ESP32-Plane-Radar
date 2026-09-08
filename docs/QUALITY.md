@@ -83,6 +83,14 @@ and walk this list:
 - [ ] Set it to 0 → no flash at all.
 - [ ] An airline flight shows its operator's name on the top tag line; a
       registration or hex id still shows verbatim.
+- [ ] Serial log reports the CPU clock at boot and a chip temperature once a
+      minute. Toggling **Power saving** off and restarting doubles the reported
+      clock; the temperature difference between the two is the payoff.
+- [ ] Raise **Wi-Fi transmit power** to 19 → the log confirms it and the device
+      stays connected. Drop it back to 8 if the board browns out or reboots.
+- [ ] Pull the plug on the router for ~10 s → the radar picture stays up and
+      recovers by itself. Only an outage past ~25 s brings up the connecting
+      animation.
 - [ ] Leave it running ~15 minutes → aircraft keep updating, no reboot loop
       (watch the serial log at 115200 baud for stack traces).
 
