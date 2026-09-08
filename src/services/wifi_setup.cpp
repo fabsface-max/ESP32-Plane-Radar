@@ -84,8 +84,71 @@ char s_ap_password[kApPasswordLen + 1] = {};
 const char* const kBlockedPortalRoutes[] = {"/update", "/u", "/erase",
                                             "/restart"};
 
-/** Portal menu without the OTA entry; parameters stay on the Wi-Fi page. */
-const char* kPortalMenu[] = {"wifi", "info", "exit"};
+/**
+ * Portal menu. The "param" entry moves the settings onto their own page — on
+ * the Wi-Fi page they sat below the credential form, which is where nobody
+ * looked. No OTA entry: that route is blocked, see kBlockedPortalRoutes.
+ */
+const char* kPortalMenu[] = {"wifi", "param", "info"};
+
+/**
+ * Injected into the <head> of every portal page.
+ *
+ * WiFiManager renders each page standalone with no navigation beyond a Back
+ * button, so every page is a dead end and the settings were effectively
+ * hidden. The script prepends the same four links everywhere and marks the
+ * current one; the styles give the parameter groups their headings and make
+ * the controls usable on a phone. About 1 KB of flash, no downloads.
+ */
+constexpr char kPortalHeadHtml[] =
+    "<style>"
+    ".wrap{max-width:430px}"
+    "#nv{display:flex;gap:5px;margin:0 0 16px}"
+    "#nv a{flex:1;text-align:center;padding:9px 4px;border-radius:8px;"
+    "background:#f2f2f2;border:1px solid #dcdcdc;color:#444;"
+    "text-decoration:none;font-size:14px}"
+    "#nv a.on{background:#1fa3ec;border-color:#1fa3ec;color:#fff}"
+    ".sc{margin:22px 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;"
+    "text-transform:uppercase;color:#777;border-bottom:1px solid #e0e0e0;"
+    "padding-bottom:5px}"
+    ".hn{font-size:12px;line-height:1.45;color:#888;margin:2px 0 12px}"
+    "input[type=number],input[type=text],input[type=password]{padding:7px}"
+    "body.invert #nv a{background:#2b2b2b;border-color:#3a3a3a;color:#ddd}"
+    "body.invert .sc{color:#aaa;border-color:#3a3a3a}"
+    "body.invert .hn{color:#999}"
+    "</style>"
+    "<script>"
+    "addEventListener('DOMContentLoaded',function(){"
+    "var m=[['/','Home'],['/wifi','Wi-Fi'],['/param','Settings'],"
+    "['/info','System']],w=document.querySelector('.wrap');if(!w)return;"
+    "var n=document.createElement('div');n.id='nv';"
+    "m.forEach(function(e){var a=document.createElement('a');"
+    "a.href=e[0];a.textContent=e[1];"
+    "if(location.pathname==e[0])a.className='on';n.appendChild(a)});"
+    "w.insertBefore(n,w.firstChild);"
+    // WiFiManager calls the settings page "Setup", which reads like the
+    // first-run wizard rather than the place options live.
+    "w.querySelectorAll(\"form[action='/param'] button\")"
+    ".forEach(function(b){b.textContent='Settings'})});"
+    "</script>";
+
+// Section headings for the settings page. A parameter built from raw HTML has
+// no id; WiFiManager renders its markup as-is and skips it when saving.
+WiFiManagerParameter s_sec_location(
+    "<div class='sc'>Location</div>"
+    "<div class='hn'>Where the radar is centred, in decimal degrees. "
+    "Negative for south and west.</div>");
+WiFiManagerParameter s_sec_display(
+    "<div class='sc'>Display</div>");
+WiFiManagerParameter s_sec_alerts(
+    "<div class='sc'>Alerts</div>"
+    "<div class='hn'>The radar pulses a coloured ring when an emergency, a "
+    "military aircraft or a rare type first appears.</div>");
+WiFiManagerParameter s_sec_radio(
+    "<div class='sc'>Network &amp; power</div>"
+    "<div class='hn'>Raise the transmit power if the connection drops; it "
+    "costs current, and therefore heat. Power saving halves the CPU clock and "
+    "takes effect at the next restart.</div>");
 
 constexpr int kCoordParamLen = 20;
 constexpr char kCoordInputAttrs[] =
@@ -224,15 +287,22 @@ void onPortalParamsSaved() {
 
 void attachPortalParams(WiFiManager& wm) {
   refreshPortalParamDefaults();
+  wm.addParameter(&s_sec_location);
   wm.addParameter(&s_param_lat);
   wm.addParameter(&s_param_lon);
+
+  wm.addParameter(&s_sec_display);
+  wm.addParameter(&s_param_font_step);
   wm.addParameter(&s_param_miles);
   wm.addParameter(&s_param_runways);
+  wm.addParameter(&s_param_icons);
   wm.addParameter(&s_param_track);
   wm.addParameter(&s_param_trails);
-  wm.addParameter(&s_param_icons);
+
+  wm.addParameter(&s_sec_alerts);
   wm.addParameter(&s_param_alert_sec);
-  wm.addParameter(&s_param_font_step);
+
+  wm.addParameter(&s_sec_radio);
   wm.addParameter(&s_param_tx_power);
   wm.addParameter(&s_param_power_save);
   wm.setSaveParamsCallback(onPortalParamsSaved);
@@ -383,6 +453,8 @@ void ensureWifiManager() {
   s_wm.setHostname(config::kPortalHostname);
   s_wm.setAPCallback(onConfigPortalApStarted);
   s_wm.setWebServerCallback(onWebServerStarted);
+  s_wm.setTitle("Plane Radar");
+  s_wm.setCustomHeadElement(kPortalHeadHtml);
   s_wm.setMenu(kPortalMenu, sizeof(kPortalMenu) / sizeof(kPortalMenu[0]));
   s_wm.setShowInfoErase(false);
   attachPortalParams(s_wm);

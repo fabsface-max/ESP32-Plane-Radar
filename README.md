@@ -27,6 +27,7 @@ seconds, on a sonar-style grid.
 | 🔒 | **Three security holes closed** | An **unauthenticated firmware-upload page** was reachable from the whole local network, along with remote credential wipe and reboot. The setup Wi-Fi was **open**. A malicious server could **crash the device on demand** with an oversized reply. See [Security](#security). |
 | 🌡️ | **Power saving and radio power** | Lower CPU clock (on by default) and a choice of Wi-Fi transmit power, for the trade-off between heat, range and stability. |
 | 📶 | **Rides out short Wi-Fi drops** | A brief hiccup no longer replaces the radar with the search screen. |
+| 🧭 | **A settings page you can find** | The options used to sit below the Wi-Fi credential form, with no navigation between pages. Now they have their own grouped page and every page carries the same navigation bar. |
 | ✅ | **A five-stage quality pipeline** | Compiler warnings, host unit tests, static analysis, firmware build and a hardware checklist — all in CI. It has already caught real defects. See [docs/QUALITY.md](docs/QUALITY.md). |
 
 Everything switchable lives in the device's own settings page — no reflashing,
@@ -60,17 +61,31 @@ address.
 1. Join the Wi-Fi network **`PlaneRadar-Setup`** using the password on screen.
    It is eight characters, derived from your board, and never changes.
 2. Open **`http://plane-radar.local`** (or `http://192.168.4.1`).
-3. Enter your home Wi-Fi, then your latitude and longitude, and save.
+3. **Wi-Fi** → pick your network, enter its password, save.
 
-The radar appears within a few seconds.
+The radar appears within a few seconds, centred on a default location.
+
+### 3. Set where you live
+
+Open **`http://plane-radar.local`** again — now from any device on your own
+network — and go to **Settings**. Enter your latitude and longitude in decimal
+degrees (right-click a spot in any map service to read them off) and save. The
+radar re-centres immediately.
 
 > Flashing wipes the stored settings, so you will do this again after every
 > firmware update. That is a property of the single-file flash image, not a bug.
 
-### 3. Change anything later
+### Later on
 
-Once it is on your network, open **`http://plane-radar.local`** from any device
-in the house. The same page carries every setting.
+Everything is reachable from **`http://plane-radar.local`**. Four pages, and the
+navigation bar at the top is on every one of them:
+
+| Page | What is on it |
+|------|---------------|
+| **Home** | Where you land; links to the rest |
+| **Wi-Fi** | Network scan, credentials |
+| **Settings** | Location, display, alerts, network & power — grouped |
+| **System** | Chip details, memory, uptime, **temperature** |
 
 **One tap on BOOT** cycles the range (5 → 10 → 15 → 25 km).
 **Holding BOOT for 3 seconds** erases Wi-Fi, location and all settings and
@@ -80,7 +95,7 @@ returns to the setup screen.
 
 ## Settings reference
 
-Everything below is on the setup page and is remembered across reboots.
+Everything below is on the **Settings** page and is remembered across reboots.
 
 | Setting | What it does |
 |---------|--------------|
@@ -179,8 +194,9 @@ original, and a sensible cap for the Super Mini's small regulator. If the
 connection drops in a weak spot, raise it to 13 or 19 dBm. That costs current
 and therefore heat, so change one thing at a time.
 
-The chip temperature is written to the serial log every minute
-(115200 baud), so you can measure the effect rather than guess it.
+The chip temperature is on the **System** page of the settings site, and is also
+written to the serial log every minute (115200 baud), so you can measure the
+effect rather than guess it.
 
 **Short Wi-Fi drops** no longer take the screen away: the radar stays up for the
 first 25 seconds of an outage while the ESP32's own auto-reconnect does its

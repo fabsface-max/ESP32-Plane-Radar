@@ -64,6 +64,12 @@ and walk this list:
       location connects and the radar appears.
 - [ ] Portal reachable again at `http://plane-radar.local` once on the LAN, and
       its menu offers no **Update** (OTA) entry.
+- [ ] The navigation bar (Home / Wi-Fi / Settings / System) appears on all four
+      pages, the current page is highlighted, and every link works. If a phone
+      blocks scripts the bar is absent — the pages still work through the Home
+      buttons.
+- [ ] The Settings page shows the four group headings and every option; saving
+      from there applies immediately without touching the Wi-Fi credentials.
 - [ ] `http://<device-ip>/update`, `/u`, `/erase` and `/restart` each return
       404 — these are the routes WiFiManager would otherwise expose unauthenticated.
 - [ ] Change **Text size** to 1, 2 and 3 → labels resize immediately, no reboot,
