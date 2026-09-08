@@ -20,8 +20,9 @@ constexpr char kPrefsFontStepKey[] = "fontStep";
 constexpr char kPrefsTrailsKey[] = "showTrails";
 constexpr char kPrefsIconsKey[] = "showIcons";
 constexpr char kPrefsAlertSecKey[] = "alertSec";
-constexpr char kPrefsPowerSaveKey[] = "powerSave";
 constexpr char kPrefsTxPowerKey[] = "txPower";
+/** Obsolete: the CPU throttle was removed after it measured no cooler. */
+constexpr char kPrefsObsoletePowerSaveKey[] = "powerSave";
 constexpr uint8_t kDefaultAlertSeconds = 5;
 /** The value the firmware has always used. */
 constexpr uint8_t kDefaultTxPowerDbm = 8;
@@ -37,7 +38,6 @@ bool s_show_trails = true;
 bool s_show_class_icons = true;
 uint8_t s_alert_seconds = kDefaultAlertSeconds;
 uint8_t s_font_step = 0;
-bool s_power_saving = true;
 uint8_t s_tx_power_dbm = kDefaultTxPowerDbm;
 
 void saveRangeIndex() {
@@ -104,14 +104,6 @@ void saveAlertSeconds() {
   s_prefs.end();
 }
 
-void savePowerSaving() {
-  if (!s_prefs.begin(kPrefsNamespace, false)) {
-    return;
-  }
-  s_prefs.putBool(kPrefsPowerSaveKey, s_power_saving);
-  s_prefs.end();
-}
-
 void saveTxPower() {
   if (!s_prefs.begin(kPrefsNamespace, false)) {
     return;
@@ -148,7 +140,6 @@ void rangeInit() {
   s_alert_seconds = sanitizedChoice(
       s_prefs.getUChar(kPrefsAlertSecKey, kDefaultAlertSeconds),
       kAlertSecondsChoices, kAlertSecondsChoiceCount, kDefaultAlertSeconds);
-  s_power_saving = s_prefs.getBool(kPrefsPowerSaveKey, true);
   s_tx_power_dbm = sanitizedChoice(
       s_prefs.getUChar(kPrefsTxPowerKey, kDefaultTxPowerDbm), kTxPowerChoices,
       kTxPowerChoiceCount, kDefaultTxPowerDbm);
@@ -184,8 +175,6 @@ bool showTrails() { return s_show_trails; }
 bool showClassIcons() { return s_show_class_icons; }
 
 uint8_t alertSeconds() { return s_alert_seconds; }
-
-bool powerSaving() { return s_power_saving; }
 
 uint8_t txPowerDbm() { return s_tx_power_dbm; }
 
@@ -232,13 +221,6 @@ void saveAlertSecondsFromPortal(const char* value) {
   Serial.printf("Alert flash: %u s\n", static_cast<unsigned>(s_alert_seconds));
 }
 
-void savePowerSavingFromPortal(const char* checkbox_value) {
-  s_power_saving = util::portal::checkboxChecked(checkbox_value);
-  savePowerSaving();
-  Serial.printf("Power saving: %s (CPU clock applies after restart)\n",
-                s_power_saving ? "on" : "off");
-}
-
 void saveTxPowerFromPortal(const char* value) {
   uint8_t dbm = 0;
   if (!util::portal::oneOf(value, kTxPowerChoices, kTxPowerChoiceCount, &dbm)) {
@@ -282,7 +264,6 @@ void unitsReset() {
   s_show_class_icons = true;
   s_alert_seconds = kDefaultAlertSeconds;
   s_font_step = 0;
-  s_power_saving = true;
   s_tx_power_dbm = kDefaultTxPowerDbm;
   if (s_prefs.begin(kPrefsNamespace, false)) {
     s_prefs.remove(kPrefsMilesKey);
@@ -292,7 +273,7 @@ void unitsReset() {
     s_prefs.remove(kPrefsTrailsKey);
     s_prefs.remove(kPrefsIconsKey);
     s_prefs.remove(kPrefsAlertSecKey);
-    s_prefs.remove(kPrefsPowerSaveKey);
+    s_prefs.remove(kPrefsObsoletePowerSaveKey);
     s_prefs.remove(kPrefsTxPowerKey);
     s_prefs.end();
   }

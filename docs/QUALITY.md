@@ -32,6 +32,25 @@ logic free of Arduino headers (`include/util/`, `src/util/`) so it stays
 testable; the rule of thumb is that a parser or a piece of geometry that needs
 `WiFi.h` to compile is in the wrong file.
 
+### The settings page renders whole
+
+The settings page is the one piece of portal code that cannot be made free of
+Arduino headers, so `tools/host_checks/` supplies just enough of `WebServer` and
+`String` to render it on the build machine and assert that every control, the
+Save button and the closing tag are there.
+
+```bash
+g++ -std=gnu++17 -Wall -Wextra -Werror -I include -I tools/host_checks/stubs \
+    tools/host_checks/portal_page_test.cpp src/services/portal_pages.cpp \
+    -o /tmp/portal_page_test && /tmp/portal_page_test
+```
+
+This exists because of a defect that no compiler and no static analyser could
+see: WiFiManager assembled the page as one Arduino `String`, and `String` gives
+no error when the heap cannot grow it. The page stopped after six controls, with
+no Save button and nothing in the log. The page is now streamed in small chunks;
+the check fails the build if it ever stops short again.
+
 ## Stage 3 — Static analysis
 
 `cppcheck` over `src/` and `include/` with `--enable=warning,performance,portability`,
@@ -89,9 +108,11 @@ and walk this list:
 - [ ] Set it to 0 → no flash at all.
 - [ ] An airline flight shows its operator's name on the top tag line; a
       registration or hex id still shows verbatim.
-- [ ] Serial log reports the CPU clock at boot and a chip temperature once a
-      minute. Toggling **Power saving** off and restarting doubles the reported
-      clock; the temperature difference between the two is the payoff.
+- [ ] Serial log reports the CPU clock at boot (160 MHz) and a chip
+      temperature once a minute.
+- [ ] The **Settings** page renders every group down to the **Save** button,
+      and Save reports success. The **System** page offers no Update button and
+      no list of pages the firmware refuses to serve.
 - [ ] Raise **Wi-Fi transmit power** to 19 → the log confirms it and the device
       stays connected. Drop it back to 8 if the board browns out or reboots.
 - [ ] Pull the plug on the router for ~10 s → the radar picture stays up and

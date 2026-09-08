@@ -15,6 +15,7 @@
 #endif
 
 #include "config.h"
+#include "services/portal_pages.h"
 #include "services/radar_location.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
@@ -85,227 +86,19 @@ const char* const kBlockedPortalRoutes[] = {"/update", "/u", "/erase",
                                             "/restart"};
 
 /**
- * Portal menu. The "param" entry moves the settings onto their own page — on
- * the Wi-Fi page they sat below the credential form, which is where nobody
- * looked. No OTA entry: that route is blocked, see kBlockedPortalRoutes.
+ * Portal menu. No "param" entry: the settings live on our own /settings page,
+ * which the navigation bar links from every page. No OTA entry either — that
+ * route is blocked, see kBlockedPortalRoutes.
  */
-const char* kPortalMenu[] = {"wifi", "param", "info"};
-
-/**
- * Injected into the <head> of every portal page.
- *
- * WiFiManager renders each page standalone with no navigation beyond a Back
- * button, so every page is a dead end and the settings were effectively
- * hidden. The script prepends the same four links everywhere and marks the
- * current one; the styles give the parameter groups their headings and make
- * the controls usable on a phone. About 1 KB of flash, no downloads.
- */
-constexpr char kPortalHeadHtml[] =
-    "<style>"
-    ".wrap{max-width:430px}"
-    "#nv{display:flex;gap:5px;margin:0 0 16px}"
-    "#nv a{flex:1;text-align:center;padding:9px 4px;border-radius:8px;"
-    "background:#f2f2f2;border:1px solid #dcdcdc;color:#444;"
-    "text-decoration:none;font-size:14px}"
-    "#nv a.on{background:#1fa3ec;border-color:#1fa3ec;color:#fff}"
-    ".sc{margin:22px 0 8px;font-size:12px;font-weight:700;letter-spacing:.08em;"
-    "text-transform:uppercase;color:#777;border-bottom:1px solid #e0e0e0;"
-    "padding-bottom:5px}"
-    ".hn{font-size:12px;line-height:1.45;color:#888;margin:2px 0 12px}"
-    "input[type=number],input[type=text],input[type=password]{padding:7px}"
-    "body.invert #nv a{background:#2b2b2b;border-color:#3a3a3a;color:#ddd}"
-    "body.invert .sc{color:#aaa;border-color:#3a3a3a}"
-    "body.invert .hn{color:#999}"
-    "</style>"
-    "<script>"
-    "addEventListener('DOMContentLoaded',function(){"
-    "var m=[['/','Home'],['/wifi','Wi-Fi'],['/param','Settings'],"
-    "['/info','System']],w=document.querySelector('.wrap');if(!w)return;"
-    "var n=document.createElement('div');n.id='nv';"
-    "m.forEach(function(e){var a=document.createElement('a');"
-    "a.href=e[0];a.textContent=e[1];"
-    "if(location.pathname==e[0])a.className='on';n.appendChild(a)});"
-    "w.insertBefore(n,w.firstChild);"
-    // WiFiManager calls the settings page "Setup", which reads like the
-    // first-run wizard rather than the place options live.
-    "w.querySelectorAll(\"form[action='/param'] button\")"
-    ".forEach(function(b){b.textContent='Settings'})});"
-    "</script>";
-
-// Section headings for the settings page. A parameter built from raw HTML has
-// no id; WiFiManager renders its markup as-is and skips it when saving.
-WiFiManagerParameter s_sec_location(
-    "<div class='sc'>Location</div>"
-    "<div class='hn'>Where the radar is centred, in decimal degrees. "
-    "Negative for south and west.</div>");
-WiFiManagerParameter s_sec_display(
-    "<div class='sc'>Display</div>");
-WiFiManagerParameter s_sec_alerts(
-    "<div class='sc'>Alerts</div>"
-    "<div class='hn'>The radar pulses a coloured ring when an emergency, a "
-    "military aircraft or a rare type first appears.</div>");
-WiFiManagerParameter s_sec_radio(
-    "<div class='sc'>Network &amp; power</div>"
-    "<div class='hn'>Raise the transmit power if the connection drops; it "
-    "costs current, and therefore heat. Power saving halves the CPU clock and "
-    "takes effect at the next restart.</div>");
-
-constexpr int kCoordParamLen = 20;
-constexpr char kCoordInputAttrs[] =
-    " type=\"number\" step=\"0.000001\"";
-
-WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
-WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
-
-char s_miles_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T", 2,
-                                   s_miles_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_runways_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T", 2,
-                                     s_runways_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_track_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_track("show_track", "Show aircraft direction lines",
-                                   "T", 2, s_track_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_trails_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_trails("show_trails", "Show flight trails", "T", 2,
-                                    s_trails_checkbox_attrs, WFM_LABEL_AFTER);
-
-char s_icons_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_icons(
-    "show_icons", "Separate symbols for helicopters and heavies", "T", 2,
-    s_icons_checkbox_attrs, WFM_LABEL_AFTER);
-
-/** Digits plus NUL for a seconds value out of kAlertSecondsChoices. */
-constexpr int kAlertSecParamLen = 2;
-char s_alert_sec_attrs[64] = "";
-WiFiManagerParameter s_param_alert_sec(
-    "alert_sec", "Alert flash seconds (0 = off, 3, 5 or 7)", "5",
-    kAlertSecParamLen, s_alert_sec_attrs);
-
-char s_power_save_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_power_save(
-    "power_save", "Power saving (lower CPU clock, applies after restart)", "T",
-    2, s_power_save_checkbox_attrs, WFM_LABEL_AFTER);
-
-/** Two digits plus NUL for a dBm value out of kTxPowerChoices. */
-constexpr int kTxPowerParamLen = 3;
-char s_tx_power_attrs[64] = "";
-WiFiManagerParameter s_param_tx_power(
-    "tx_power", "Wi-Fi transmit power dBm (8 low, 13 medium, 19 high)", "8",
-    kTxPowerParamLen, s_tx_power_attrs);
-
-/** Digits plus NUL for a 1..kFontStepCount step number. */
-constexpr int kFontStepParamLen = 2;
-char s_font_step_attrs[48] = "";
-WiFiManagerParameter s_param_font_step(
-    "font_step", "Text size (1 = normal, 3 = smallest)", "1", kFontStepParamLen,
-    s_font_step_attrs);
+const char* kPortalMenu[] = {"wifi", "info"};
 
 bool s_display_settings_changed = false;
 
-void refreshPortalParamDefaults() {
-  char lat_buf[kCoordParamLen + 1];
-  char lon_buf[kCoordParamLen + 1];
-  snprintf(lat_buf, sizeof(lat_buf), "%.6f", services::location::lat());
-  snprintf(lon_buf, sizeof(lon_buf), "%.6f", services::location::lon());
-  s_param_lat.setValue(lat_buf, kCoordParamLen);
-  s_param_lon.setValue(lon_buf, kCoordParamLen);
-  snprintf(s_miles_checkbox_attrs, sizeof(s_miles_checkbox_attrs), "type=\"checkbox\"%s",
-           ui::radar::useMiles() ? " checked" : "");
-  s_param_miles.setValue("T", 2);
-  snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
-  s_param_runways.setValue("T", 2);
-  snprintf(s_track_checkbox_attrs, sizeof(s_track_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showTrackVectors() ? " checked" : "");
-  s_param_track.setValue("T", 2);
-
-  snprintf(s_trails_checkbox_attrs, sizeof(s_trails_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showTrails() ? " checked" : "");
-  s_param_trails.setValue("T", 2);
-  snprintf(s_icons_checkbox_attrs, sizeof(s_icons_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showClassIcons() ? " checked" : "");
-  s_param_icons.setValue("T", 2);
-
-  // A number field rather than a free one: only 0, 3, 5 and 7 are accepted, and
-  // the browser should say so before the device has to reject it.
-  snprintf(s_alert_sec_attrs, sizeof(s_alert_sec_attrs),
-           " type=\"number\" min=\"0\" max=\"%u\" step=\"1\"",
-           static_cast<unsigned>(
-               ui::radar::kAlertSecondsChoices[ui::radar::kAlertSecondsChoiceCount - 1]));
-  char alert_sec_buf[kAlertSecParamLen + 1];
-  snprintf(alert_sec_buf, sizeof(alert_sec_buf), "%u",
-           static_cast<unsigned>(ui::radar::alertSeconds()));
-  s_param_alert_sec.setValue(alert_sec_buf, kAlertSecParamLen);
-
-  snprintf(s_power_save_checkbox_attrs, sizeof(s_power_save_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::powerSaving() ? " checked" : "");
-  s_param_power_save.setValue("T", 2);
-
-  snprintf(s_tx_power_attrs, sizeof(s_tx_power_attrs),
-           " type=\"number\" min=\"%u\" max=\"%u\" step=\"1\"",
-           static_cast<unsigned>(ui::radar::kTxPowerChoices[0]),
-           static_cast<unsigned>(
-               ui::radar::kTxPowerChoices[ui::radar::kTxPowerChoiceCount - 1]));
-  char tx_power_buf[kTxPowerParamLen + 1];
-  snprintf(tx_power_buf, sizeof(tx_power_buf), "%u",
-           static_cast<unsigned>(ui::radar::txPowerDbm()));
-  s_param_tx_power.setValue(tx_power_buf, kTxPowerParamLen);
-
-  snprintf(s_font_step_attrs, sizeof(s_font_step_attrs),
-           " type=\"number\" min=\"1\" max=\"%u\" step=\"1\"",
-           static_cast<unsigned>(ui::radar::kFontStepCount));
-  char font_step_buf[kFontStepParamLen + 1];
-  snprintf(font_step_buf, sizeof(font_step_buf), "%u",
-           static_cast<unsigned>(ui::radar::fontStep()) + 1);
-  s_param_font_step.setValue(font_step_buf, kFontStepParamLen);
-}
-
-void onPortalParamsSaved() {
-  if (!services::location::saveFromStrings(s_param_lat.getValue(),
-                                           s_param_lon.getValue())) {
-    Serial.println("Invalid lat/lon in portal — keeping previous location");
-  }
-  ui::radar::saveMilesFromPortal(s_param_miles.getValue());
-  ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
-  ui::radar::saveTrackVectorsFromPortal(s_param_track.getValue());
-  ui::radar::saveTrailsFromPortal(s_param_trails.getValue());
-  ui::radar::saveClassIconsFromPortal(s_param_icons.getValue());
-  ui::radar::saveAlertSecondsFromPortal(s_param_alert_sec.getValue());
-  ui::radar::savePowerSavingFromPortal(s_param_power_save.getValue());
-  ui::radar::saveTxPowerFromPortal(s_param_tx_power.getValue());
+/** Runs after /settingssave has stored everything the form carried. */
+void onSettingsSaved() {
   // Transmit power is the one setting that can take hold without a redraw.
   applyTxPower();
-  ui::radar::saveFontStepFromPortal(s_param_font_step.getValue());
   s_display_settings_changed = true;
-}
-
-void attachPortalParams(WiFiManager& wm) {
-  refreshPortalParamDefaults();
-  wm.addParameter(&s_sec_location);
-  wm.addParameter(&s_param_lat);
-  wm.addParameter(&s_param_lon);
-
-  wm.addParameter(&s_sec_display);
-  wm.addParameter(&s_param_font_step);
-  wm.addParameter(&s_param_miles);
-  wm.addParameter(&s_param_runways);
-  wm.addParameter(&s_param_icons);
-  wm.addParameter(&s_param_track);
-  wm.addParameter(&s_param_trails);
-
-  wm.addParameter(&s_sec_alerts);
-  wm.addParameter(&s_param_alert_sec);
-
-  wm.addParameter(&s_sec_radio);
-  wm.addParameter(&s_param_tx_power);
-  wm.addParameter(&s_param_power_save);
-  wm.setSaveParamsCallback(onPortalParamsSaved);
 }
 
 void markForceConfigPortal() {
@@ -399,6 +192,7 @@ void onWebServerStarted() {
       s_wm.server->send(404, "text/plain", "Not found");
     });
   }
+  services::portal::registerRoutes(*s_wm.server, onSettingsSaved);
 }
 
 /**
@@ -454,10 +248,13 @@ void ensureWifiManager() {
   s_wm.setAPCallback(onConfigPortalApStarted);
   s_wm.setWebServerCallback(onWebServerStarted);
   s_wm.setTitle("Plane Radar");
-  s_wm.setCustomHeadElement(kPortalHeadHtml);
+  s_wm.setCustomHeadElement(services::portal::headHtml());
   s_wm.setMenu(kPortalMenu, sizeof(kPortalMenu) / sizeof(kPortalMenu[0]));
+  // Both buttons lead to routes this firmware refuses to serve, so the info
+  // page should not advertise them. The "Available pages" table that used to
+  // list /u, /restart and /erase alongside them is compiled out by WM_NOHELP.
   s_wm.setShowInfoErase(false);
-  attachPortalParams(s_wm);
+  s_wm.setShowInfoUpdate(false);
   s_wm_configured = true;
 }
 
@@ -466,7 +263,6 @@ void startLanWebPortal() {
       s_wm.getConfigPortalActive()) {
     return;
   }
-  refreshPortalParamDefaults();
   WiFi.mode(WIFI_STA);
   s_wm.setConfigPortalBlocking(false);
 #ifdef WM_MDNS

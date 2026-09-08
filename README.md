@@ -25,9 +25,9 @@ seconds, on a sonar-style grid.
 | 🚨 | **Alert flash** | The radar pulses a coloured ring when an emergency squawk, a military aircraft or a rare type (A380, 747, An-124…) first appears. 3, 5 or 7 seconds, or off. |
 | 🔴 | **Direction lines can be switched off** | The line ahead of each aircraft is now optional. |
 | 🔒 | **Three security holes closed** | An **unauthenticated firmware-upload page** was reachable from the whole local network, along with remote credential wipe and reboot. The setup Wi-Fi was **open**. A malicious server could **crash the device on demand** with an oversized reply. See [Security](#security). |
-| 🌡️ | **Power saving and radio power** | Lower CPU clock (on by default) and a choice of Wi-Fi transmit power, for the trade-off between heat, range and stability. |
+| 🌡️ | **Radio power you can trade** | A choice of Wi-Fi transmit power, for the trade-off between heat, range and stability. The chip temperature is on the System page. |
 | 📶 | **Rides out short Wi-Fi drops** | A brief hiccup no longer replaces the radar with the search screen. |
-| 🧭 | **A settings page you can find** | The options used to sit below the Wi-Fi credential form, with no navigation between pages. Now they have their own grouped page and every page carries the same navigation bar. |
+| 🧭 | **A settings page you can find — and that finishes** | The options used to sit below the Wi-Fi credential form, with no navigation between pages. Now they have their own grouped page, served by this firmware rather than by WiFiManager, and every page carries the same navigation bar. WiFiManager built the page as one large string in RAM and cut it off without a word when memory ran short — half the options and the Save button simply never appeared. The page is now written out in small pieces, so its length no longer depends on free memory. |
 | ✅ | **A five-stage quality pipeline** | Compiler warnings, host unit tests, static analysis, firmware build and a hardware checklist — all in CI. It has already caught real defects. See [docs/QUALITY.md](docs/QUALITY.md). |
 
 Everything switchable lives in the device's own settings page — no reflashing,
@@ -107,8 +107,7 @@ Everything below is on the **Settings** page and is remembered across reboots.
 | **Separate symbols for helicopters and heavies** | Per-class silhouettes instead of one triangle |
 | **Alert flash seconds** | `0` off, or `3` / `5` / `7` — how long the radar pulses for a noteworthy aircraft |
 | **Text size** | `1` normal, `2` small, `3` smallest |
-| **Wi-Fi transmit power dBm** | `8` low (default), `13` medium, `19` high — see [Heat and stability](#heat-and-stability) |
-| **Power saving** | Lower CPU clock. On by default; takes effect at the next restart |
+| **Wi-Fi transmit power** | `8 dBm` low (default), `13` medium, `19` high — see [Heat and stability](#heat-and-stability) |
 
 ---
 
@@ -184,10 +183,11 @@ The board runs warm — around 70 °C on the chip is normal for a radio that nev
 sleeps inside a closed printed case. It is well inside the part's rating, but
 two settings let you trade:
 
-**Power saving** (on by default) runs the core at 80 MHz instead of 160 MHz.
-That halves the core's dynamic power and changes nothing you can see: the SPI
-bus keeps its own clock, and the radar redraws only every few seconds. It
-applies at the next restart.
+Halving the core clock to 80 MHz was tried and **measured no difference** —
+still about 70 °C. The heat comes from the radio, which is kept permanently
+awake so the connection does not drop, not from the core. The setting has been
+removed rather than kept as a control that costs responsiveness and buys
+nothing; the core runs at its full 160 MHz.
 
 **Wi-Fi transmit power** is capped at 8.5 dBm by default — inherited from the
 original, and a sensible cap for the Super Mini's small regulator. If the
@@ -216,6 +216,7 @@ aim is to keep the reachable surface as small as the feature set allows.
 | No over-the-air updates | A single app partition. Firmware changes need physical USB access. |
 | Response size cap (48 KB) | The chip has 320 KB of RAM and the radar holds a 115 KB frame buffer. An oversized or endless reply would otherwise exhaust the heap and reboot the device on demand. The server's `Content-Length` is never trusted for the reservation. |
 | Strict input parsing | Coordinates, checkboxes and every number field are validated in `include/util/`; a malformed field leaves the stored setting untouched. Covered by host tests. |
+| Settings form carries a token | A browser attaches no origin restriction to a plain form submit, so any web page you happened to have open could otherwise POST new settings to the radar. The settings page carries a random per-boot token that a foreign page cannot read, and a save without it is refused. |
 
 **Known gap:** the ADS-B request does not verify the server's certificate
 (`client.setInsecure()`). Someone able to manipulate your network traffic can
@@ -239,18 +240,20 @@ detail and the hardware checklist.
 
 1. **Compiler warnings** — `-Wall -Wextra`; CI fails on any warning in this
    project's own code.
-2. **Host unit tests** — `pio test -e native`, 19 cases over the input parsers,
-   the callsign parser, the aircraft classifier and the alert rules. They run on
-   the build machine, so hostile and malformed inputs are exercised without a
-   board.
+2. **Host tests** — `pio test -e native`, 19 cases over the input parsers, the
+   callsign parser, the aircraft classifier and the alert rules, plus a render
+   of the settings page that fails if any control or the Save button goes
+   missing. They run on the build machine, so hostile and malformed inputs are
+   exercised without a board.
 3. **Static analysis** — cppcheck over `src/` and `include/`, failing on any
    finding.
 4. **Firmware build** — plus the web-flashable image, published as an artifact.
 5. **Hardware smoke test** — a written checklist for what no machine can see.
 
 It has already earned its keep: stage 1 found dead code carrying the wrong
-safety margin, stage 3 found a portability bug in the trail store, and two
-defects in the test harness itself surfaced — including assertions that silently
+safety margin, stage 3 found a portability bug in the trail store, stage 2 now
+guards the truncated settings page that no compiler could see, and two defects
+in the test harness itself surfaced — including assertions that silently
 compared nothing.
 
 ---

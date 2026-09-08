@@ -40,12 +40,11 @@ constexpr unsigned long kBootTapMinMs = 40UL;
 
 // --- Power ---
 /**
- * CPU clock with power saving on. 80 MHz is the lowest the Wi-Fi stack
- * supports, halves dynamic core power, and leaves the SPI bus untouched — the
- * peripheral clock stays at 80 MHz either way. Applied once at boot: changing
- * it while the radio is up is not worth the risk.
+ * Core clock. 160 MHz is the ESP32-C3 maximum and what the firmware runs at.
+ * Halving it to 80 MHz was tried as a heat lever and measured no difference on
+ * the board (still ~70 C), so the setting was removed rather than kept as a
+ * control that costs responsiveness and buys nothing.
  */
-constexpr uint32_t kCpuFreqSavingMhz = 80;
 constexpr uint32_t kCpuFreqFullMhz = 160;
 /** How often the chip temperature goes to the serial log. */
 constexpr unsigned long kTempLogIntervalMs = 60000;

@@ -29,19 +29,11 @@ unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
 unsigned long g_last_temp_log_ms = 0;
 
-/**
- * Lower the core clock when power saving is on. 80 MHz is the lowest the Wi-Fi
- * stack supports and leaves the SPI bus untouched, since the peripheral clock
- * stays at 80 MHz either way. Applied once here: changing it while the radio is
- * up is not worth the risk.
- */
+/** Pin the core clock to its maximum; see config::kCpuFreqFullMhz. */
 void applyCpuClock() {
-  const uint32_t mhz = ui::radar::powerSaving() ? config::kCpuFreqSavingMhz
-                                                : config::kCpuFreqFullMhz;
-  setCpuFrequencyMhz(mhz);
-  Serial.printf("CPU clock: %u MHz (power saving %s)\n",
-                static_cast<unsigned>(getCpuFrequencyMhz()),
-                ui::radar::powerSaving() ? "on" : "off");
+  setCpuFrequencyMhz(config::kCpuFreqFullMhz);
+  Serial.printf("CPU clock: %u MHz\n",
+                static_cast<unsigned>(getCpuFrequencyMhz()));
 }
 
 /** Chip temperature to the serial log, so power tuning can be measured. */

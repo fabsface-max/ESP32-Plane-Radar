@@ -77,8 +77,6 @@ bool showClassIcons();
 /** Flash duration in seconds; 0 = alerts off. */
 uint8_t alertSeconds();
 uint8_t fontStep();
-/** Lower CPU clock at boot; the radio is untouched. */
-bool powerSaving();
 /** Wi-Fi transmit power in dBm, one of kTxPowerChoices. */
 uint8_t txPowerDbm();
 /** WiFi portal checkbox: "T" = miles, otherwise km. */
@@ -91,7 +89,6 @@ void saveClassIconsFromPortal(const char* checkbox_value);
 void saveAlertSecondsFromPortal(const char* value);
 /** WiFi portal number field: 1..kFontStepCount, stored 0-based. */
 void saveFontStepFromPortal(const char* value);
-void savePowerSavingFromPortal(const char* checkbox_value);
 /** WiFi portal number field: one of kTxPowerChoices. */
 void saveTxPowerFromPortal(const char* value);
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles);
