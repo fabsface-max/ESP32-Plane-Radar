@@ -38,7 +38,19 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Build
-        run: pio run -e supermini
+        run: |
+          set -o pipefail
+          pio run -e supermini 2>&1 | tee build.log
+
+      - name: Fail on warnings in project code
+        # Stage 1 of the quality pipeline. Third-party libraries warn plenty and
+        # are not ours to fix; anything under src/ or include/ is.
+        run: |
+          if grep -E '(^|/)(src|include)/[^ ]*: (warning|error):' build.log; then
+            echo "::error::compiler warnings in project code"
+            exit 1
+          fi
+          echo "No compiler warnings in src/ or include/."
 
       - name: Merge web-flash image
         run: pio run -t merge -e supermini

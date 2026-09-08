@@ -17,6 +17,14 @@ constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
 constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
+constexpr unsigned long kHandshakeTimeoutSec = 10;
+/**
+ * Upper bound on a response body. The C3 has 320 KB of RAM and the radar
+ * already holds a 115 KB frame sprite, so a body this large cannot be parsed
+ * anyway — capping it turns an out-of-memory reboot (which a hostile or broken
+ * server could trigger at will) into a logged, recoverable failure.
+ */
+constexpr size_t kMaxPayloadBytes = 48u * 1024u;
 
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
@@ -52,9 +60,12 @@ bool readResponseBodyWithPoll(HTTPClient& http, String& payload) {
     return false;
   }
 
+  // Content-Length comes from the network: reserve what the device can hold,
+  // never what the header asks for.
   const int content_length = http.getSize();
   if (content_length > 0) {
-    payload.reserve(static_cast<unsigned>(content_length + 1));
+    const size_t want = static_cast<size_t>(content_length) + 1;
+    payload.reserve(want < kMaxPayloadBytes ? want : kMaxPayloadBytes);
   }
 
   uint8_t buffer[512];
@@ -70,6 +81,11 @@ bool readResponseBodyWithPoll(HTTPClient& http, String& payload) {
       if (read_bytes > 0) {
         payload.concat(reinterpret_cast<const char*>(buffer),
                        static_cast<unsigned>(read_bytes));
+      }
+      if (payload.length() >= kMaxPayloadBytes) {
+        Serial.printf("adsb: response over %u bytes - dropped\n",
+                      static_cast<unsigned>(kMaxPayloadBytes));
+        return false;
       }
     }
     if (content_length > 0 &&
@@ -216,7 +232,9 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   url += String(dist_nm, 1);
 
   WiFiClientSecure client;
+  // TODO(security): pin the server's root CA instead of skipping validation.
   client.setInsecure();
+  client.setHandshakeTimeout(kHandshakeTimeoutSec);
 
   HTTPClient http;
   if (!http.begin(client, url)) {

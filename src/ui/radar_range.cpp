@@ -1,12 +1,11 @@
 #include "ui/radar_range.h"
 
 #include "ui/radar_theme.h"
+#include "util/portal_input.h"
 
 #include <Preferences.h>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 
 namespace ui::radar {
 
@@ -68,18 +67,6 @@ void saveFontStep() {
   s_prefs.end();
 }
 
-bool portalCheckboxChecked(const char* value) {
-  if (value == nullptr || value[0] == '\0') {
-    return false;
-  }
-  // WiFiManager checkbox submits its value= attribute ("T", or "F" if we prefilled F).
-  if ((value[0] == 'T' || value[0] == 't' || value[0] == 'F' || value[0] == 'f') &&
-      value[1] == '\0') {
-    return true;
-  }
-  return strcmp(value, "on") == 0;
-}
-
 }  // namespace
 
 void rangeInit() {
@@ -122,30 +109,30 @@ bool showTrackVectors() { return s_show_track_vectors; }
 uint8_t fontStep() { return s_font_step; }
 
 void saveMilesFromPortal(const char* checkbox_value) {
-  s_use_miles = portalCheckboxChecked(checkbox_value);
+  s_use_miles = util::portal::checkboxChecked(checkbox_value);
   saveUseMiles();
   Serial.printf("Distance units: %s\n", s_use_miles ? "miles" : "km");
 }
 
 void saveRunwaysFromPortal(const char* checkbox_value) {
-  s_show_runways = portalCheckboxChecked(checkbox_value);
+  s_show_runways = util::portal::checkboxChecked(checkbox_value);
   saveShowRunways();
   Serial.printf("Runway overlay: %s\n", s_show_runways ? "on" : "off");
 }
 
 void saveTrackVectorsFromPortal(const char* checkbox_value) {
-  s_show_track_vectors = portalCheckboxChecked(checkbox_value);
+  s_show_track_vectors = util::portal::checkboxChecked(checkbox_value);
   saveShowTrackVectors();
   Serial.printf("Track vectors: %s\n", s_show_track_vectors ? "on" : "off");
 }
 
 void saveFontStepFromPortal(const char* value) {
-  // Portal shows 1..kFontStepCount; anything out of range keeps the default.
-  const long entered = (value != nullptr) ? strtol(value, nullptr, 10) : 0;
-  if (entered < 1 || entered > kFontStepCount) {
+  // Portal shows 1..kFontStepCount; anything else keeps the stored step.
+  uint8_t step = 0;
+  if (!util::portal::stepIndex(value, kFontStepCount, &step)) {
     return;
   }
-  s_font_step = static_cast<uint8_t>(entered - 1);
+  s_font_step = step;
   saveFontStep();
   Serial.printf("Text size step: %u\n", static_cast<unsigned>(s_font_step) + 1);
 }

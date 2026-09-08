@@ -68,6 +68,24 @@ void startLanWebPortal();
 void stopLanWebPortal();
 bool wifiLinkUp();
 
+/** WPA2 minimum is 8 characters. */
+constexpr size_t kApPasswordLen = 8;
+char s_ap_password[kApPasswordLen + 1] = {};
+
+/**
+ * WiFiManager registers every route without authentication — its own auth hook
+ * is a no-op in 2.0.17 — and the default menu even links an OTA upload form.
+ * Anyone who can reach the device on the LAN could otherwise push firmware,
+ * wipe credentials, or reboot it. These routes serve nothing this firmware
+ * needs: there is no second OTA slot to flash into, and a credential reset is
+ * available by holding BOOT on the device itself.
+ */
+const char* const kBlockedPortalRoutes[] = {"/update", "/u", "/erase",
+                                            "/restart"};
+
+/** Portal menu without the OTA entry; parameters stay on the Wi-Fi page. */
+const char* kPortalMenu[] = {"wifi", "info", "exit"};
+
 constexpr int kCoordParamLen = 20;
 constexpr char kCoordInputAttrs[] =
     " type=\"number\" step=\"0.000001\"";
@@ -224,6 +242,22 @@ void resetWifiCredentials() {
   Serial.println("WiFi credentials, location, and units cleared");
 }
 
+/**
+ * Runs after WiFiManager creates its web server but before it registers its own
+ * routes. ESP32's WebServer dispatches to the first handler that matches, so
+ * claiming the dangerous URIs here shadows the library's versions for good.
+ */
+void onWebServerStarted() {
+  if (s_wm.server == nullptr) {
+    return;
+  }
+  for (const char* route : kBlockedPortalRoutes) {
+    s_wm.server->on(route, HTTP_ANY, []() {
+      s_wm.server->send(404, "text/plain", "Not found");
+    });
+  }
+}
+
 void onConfigPortalApStarted(WiFiManager*) {
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
   statusScreenPortal();
@@ -254,6 +288,9 @@ void ensureWifiManager() {
                            IPAddress(255, 255, 255, 0));
   s_wm.setHostname(config::kPortalHostname);
   s_wm.setAPCallback(onConfigPortalApStarted);
+  s_wm.setWebServerCallback(onWebServerStarted);
+  s_wm.setMenu(kPortalMenu, sizeof(kPortalMenu) / sizeof(kPortalMenu[0]));
+  s_wm.setShowInfoErase(false);
   attachPortalParams(s_wm);
   s_wm_configured = true;
 }
@@ -385,7 +422,7 @@ bool openConfigPortal() {
   delay(50);
   statusScreenPortal();
   s_wm.setConfigPortalBlocking(false);
-  s_wm.startConfigPortal(config::kPortalApName);
+  s_wm.startConfigPortal(config::kPortalApName, wifiSetupApPassword());
   while (s_wm.getConfigPortalActive()) {
     bootButtonPollLongPress();
     if (s_wm.process()) {
@@ -397,6 +434,31 @@ bool openConfigPortal() {
 }
 
 }  // namespace
+
+const char* wifiSetupApPassword() {
+  if (s_ap_password[0] != '\0') {
+    return s_ap_password;
+  }
+
+  // Ambiguous glyphs (0/O, 1/I/l) are left out: the password is read off a
+  // 1.28" screen and typed on a phone.
+  static constexpr char kAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  constexpr uint64_t kAlphabetMask = 31;  // sizeof(kAlphabet) - 1 == 32 chars
+
+  uint8_t mac[6] = {};
+  WiFi.macAddress(mac);
+
+  uint64_t bits = 0;
+  for (uint8_t octet : mac) {
+    bits = (bits << 8) | octet;
+  }
+  for (size_t i = 0; i < kApPasswordLen; ++i) {
+    s_ap_password[i] = kAlphabet[bits & kAlphabetMask];
+    bits >>= 5;
+  }
+  s_ap_password[kApPasswordLen] = '\0';
+  return s_ap_password;
+}
 
 bool wifiShowsSetupScreenOnBoot() {
   if (s_force_config_portal) {

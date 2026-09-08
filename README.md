@@ -26,8 +26,8 @@ During setup you can also hold BOOT at power-on to force a credential reset (sam
 
 **First-time setup** (no saved Wi‑Fi):
 
-1. Connect to **`PlaneRadar-Setup`**
-2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the yellow setup screen; captive portal may open automatically
+1. Connect to **`PlaneRadar-Setup`** — the AP is WPA2-protected; its password is shown on the yellow setup screen (8 characters, derived from this device's MAC, so it never changes)
+2. Open **`http://plane-radar.local`** (preferred) or **`http://192.168.4.1`** — both are shown on the setup screen; captive portal may open automatically
 3. Set home Wi‑Fi, then save
 
 **Reconfigure anytime** (after the device is on your network):
@@ -108,6 +108,33 @@ As range decreases (or aircraft approach), targets move inward; beyond-ring dots
 - Poll interval: `kAdsbFetchIntervalMs` (5 s) in `config.h`
 - Ground aircraft hidden by default (`kAdsbShowGroundAircraft`)
 
+## Security
+
+The device sits on a home network and its settings page has no login, so the
+aim is to keep the reachable surface as small as the feature set allows.
+
+| Measure | Why |
+|---------|-----|
+| Setup AP is WPA2-protected | An open AP lets anyone in radio range hand the radar a network of their choice. Password is MAC-derived, stable, and printed on the setup screen. |
+| `/update`, `/u`, `/erase`, `/restart` return 404 | WiFiManager registers an **unauthenticated OTA upload** plus credential-wipe and reboot endpoints on every portal, and links the OTA form from its default menu. Nothing here needs them: the partition table has no second OTA slot, and a credential reset is a 3 s BOOT hold on the device. The web-server callback runs before the library registers its routes, and ESP32's `WebServer` dispatches to the first match, so claiming the URIs there shadows them for good. |
+| No OTA partition | `partitions/plane_radar.csv` has a single app slot. Firmware changes require physical USB access. |
+| Response size cap (48 KB) | The C3 has 320 KB of RAM and the radar holds a 115 KB frame sprite. An oversized or endless response body would otherwise exhaust the heap and reboot the device. `Content-Length` is never trusted for the reservation. |
+| Strict portal input parsing | Coordinates, checkboxes and the text-size step are validated in `include/util/`; a malformed field leaves the stored setting untouched. Covered by host tests (stage 2 of the [quality pipeline](docs/QUALITY.md)). |
+
+**Known gap:** the ADS-B fetch uses `client.setInsecure()` — the server's
+certificate is not validated. A network attacker can therefore read the
+configured coordinates out of the request URL and feed fabricated aircraft to
+the display. It cannot reach further: the JSON parser is bounded, every string
+copy is length-checked, and the response is capped. Fixing it means pinning
+adsb.fi's root CA, which trades this exposure for a device that stops fetching
+whenever that CA rotates.
+
+## Quality pipeline
+
+Five stages, cheapest first — compiler warnings, host unit tests, static
+analysis, firmware build, and a hardware smoke-test checklist. See
+[docs/QUALITY.md](docs/QUALITY.md). Run the host tests with `pio test -e native`.
+
 ## Configuration
 
 Edit **`include/config.h`** for hardware and behavior:
@@ -128,6 +155,7 @@ Range presets: `include/ui/radar_range.h` (`kRangePresets`).
 ```
 include/
   config.h
+  util/                    — Arduino-free helpers (host-testable)
   hardware/
     lgfx_config.hpp
     display.h
@@ -152,6 +180,10 @@ data/
 scripts/
   build_large_airports.py
   build_ui_fonts.py
+test/
+  test_util/               — host unit tests (pio test -e native)
+docs/
+  QUALITY.md
 src/
   main.cpp
   data/

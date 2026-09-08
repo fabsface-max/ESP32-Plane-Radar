@@ -10,6 +10,7 @@
 #include "config.h"
 #include "hardware/display.h"
 #include "hardware/display_font.h"
+#include "services/wifi_setup.h"
 
 namespace {
 
@@ -218,13 +219,16 @@ void statusScreenConnectingTick() {
 }
 
 void statusScreenPortal() {
+  // The setup AP is WPA2-protected, so its password has to be readable here.
   const TextLine lines[] = {
-      {"Wi-Fi setup", 1.15f, &kPortalGfxTitle},
-      {"1. Join network:", 1.05f, &kPortalGfxBody},
-      {config::kPortalApName, 1.12f, &kPortalGfxEmphasis},
-      {"2. Open in browser:", 1.05f, &kPortalGfxBody},
-      {config::kPortalHostUrl, 1.12f, &kPortalGfxEmphasis},
-      {"or 192.168.4.1", 1.0f, &kPortalGfxBody},
+      {"Wi-Fi setup", 1.05f, &kPortalGfxTitle},
+      {"1. Join network:", 0.95f, &kPortalGfxBody},
+      {config::kPortalApName, 1.02f, &kPortalGfxEmphasis},
+      {"Password:", 0.95f, &kPortalGfxBody},
+      {wifiSetupApPassword(), 1.02f, &kPortalGfxEmphasis},
+      {"2. Open in browser:", 0.95f, &kPortalGfxBody},
+      {config::kPortalHostUrl, 1.02f, &kPortalGfxEmphasis},
+      {"or 192.168.4.1", 0.9f, &kPortalGfxBody},
   };
   drawTextBlock(config::kColorYellow, config::kTextOnYellow, lines,
                 sizeof(lines) / sizeof(lines[0]));
