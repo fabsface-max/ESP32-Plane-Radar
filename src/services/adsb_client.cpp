@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "util/aircraft_class.h"
 
 namespace services::adsb {
 
@@ -17,6 +18,14 @@ constexpr char kApiBase[] = "https://opendata.adsb.fi/api/v3/lat/";
 constexpr float kKmPerNm = 1.852f;
 constexpr int kConnectAttemptMs = 200;
 constexpr unsigned long kRequestTimeoutMs = 10000;
+constexpr unsigned long kHandshakeTimeoutSec = 10;
+/**
+ * Upper bound on a response body. The C3 has 320 KB of RAM and the radar
+ * already holds a 115 KB frame sprite, so a body this large cannot be parsed
+ * anyway — capping it turns an out-of-memory reboot (which a hostile or broken
+ * server could trigger at will) into a logged, recoverable failure.
+ */
+constexpr size_t kMaxPayloadBytes = 48u * 1024u;
 
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
@@ -52,9 +61,12 @@ bool readResponseBodyWithPoll(HTTPClient& http, String& payload) {
     return false;
   }
 
+  // Content-Length comes from the network: reserve what the device can hold,
+  // never what the header asks for.
   const int content_length = http.getSize();
   if (content_length > 0) {
-    payload.reserve(static_cast<unsigned>(content_length + 1));
+    const size_t want = static_cast<size_t>(content_length) + 1;
+    payload.reserve(want < kMaxPayloadBytes ? want : kMaxPayloadBytes);
   }
 
   uint8_t buffer[512];
@@ -70,6 +82,11 @@ bool readResponseBodyWithPoll(HTTPClient& http, String& payload) {
       if (read_bytes > 0) {
         payload.concat(reinterpret_cast<const char*>(buffer),
                        static_cast<unsigned>(read_bytes));
+      }
+      if (payload.length() >= kMaxPayloadBytes) {
+        Serial.printf("adsb: response over %u bytes - dropped\n",
+                      static_cast<unsigned>(kMaxPayloadBytes));
+        return false;
       }
     }
     if (content_length > 0 &&
@@ -187,14 +204,38 @@ void formatAltitudeTag(const JsonObject& plane, char* out, size_t out_len) {
   }
 }
 
+/** Optional string field, or "" when the feed omits it. */
+const char* jsonStringOr(const JsonObject& obj, const char* key,
+                         const char* fallback) {
+  if (!obj[key].is<const char*>()) {
+    return fallback;
+  }
+  const char* value = obj[key].as<const char*>();
+  return value != nullptr ? value : fallback;
+}
+
 void fillTagFields(Aircraft* ac, const JsonObject& plane) {
   copyJsonStringTrimmed(plane, "flight", ac->callsign, sizeof(ac->callsign));
+  copyJsonStringTrimmed(plane, "hex", ac->hex, sizeof(ac->hex));
   if (ac->callsign[0] == '\0') {
     copyJsonStringTrimmed(plane, "hex", ac->callsign, sizeof(ac->callsign));
   }
 
   copyJsonStringTrimmed(plane, "t", ac->type, sizeof(ac->type));
   formatAltitudeTag(plane, ac->alt, sizeof(ac->alt));
+
+  // category, emergency, squawk and dbFlags are all optional in the readsb
+  // schema these feeds derive from, and most aircraft send none of them; every
+  // classifier below falls back rather than guessing.
+  const char* category = jsonStringOr(plane, "category", "");
+  const char* emergency = jsonStringOr(plane, "emergency", "");
+  const char* squawk = jsonStringOr(plane, "squawk", "");
+  const uint32_t db_flags =
+      plane["dbFlags"].is<unsigned>() ? plane["dbFlags"].as<unsigned>() : 0u;
+
+  ac->klass = static_cast<uint8_t>(util::aircraft::classify(ac->type, category));
+  ac->alert_flags =
+      util::aircraft::alertFlags(ac->type, emergency, squawk, db_flags);
 }
 
 }  // namespace
@@ -216,7 +257,9 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   url += String(dist_nm, 1);
 
   WiFiClientSecure client;
+  // TODO(security): pin the server's root CA instead of skipping validation.
   client.setInsecure();
+  client.setHandshakeTimeout(kHandshakeTimeoutSec);
 
   HTTPClient http;
   if (!http.begin(client, url)) {
@@ -266,6 +309,7 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
       continue;
     }
 
+    s_aircraft[n] = Aircraft{};
     s_aircraft[n].lat = plane["lat"].as<float>();
     s_aircraft[n].lon = plane["lon"].as<float>();
     s_aircraft[n].nose_deg = pickNoseHeading(plane);

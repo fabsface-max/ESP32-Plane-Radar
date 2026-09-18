@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace services::adsb {
 
@@ -13,6 +14,12 @@ struct Aircraft {
   char callsign[9];
   char type[5];
   char alt[12];
+  /** ICAO 24-bit address; the only id stable across sweeps. */
+  char hex[7];
+  /** util::aircraft::Klass — which silhouette to draw. */
+  uint8_t klass;
+  /** util::aircraft::kFlag* bits — why this aircraft might be worth a flash. */
+  uint8_t alert_flags;
 };
 
 constexpr size_t kMaxAircraft = 64;

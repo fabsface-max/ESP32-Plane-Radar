@@ -43,14 +43,57 @@ uint8_t rangeIndex();
 /** ADSB fetch radius (km): scaled to screen edge so beyond-ring dots have data. */
 float fetchRadiusKm();
 
+/**
+ * UI text size steps, largest first. Each step maps to a set of embedded font
+ * sizes in radar_theme.h; the portal shows them 1-based.
+ */
+constexpr uint8_t kFontStepCount = 3;
+
+/**
+ * Wi-Fi transmit power steps the portal accepts, in dBm.
+ *
+ * The firmware has always run at 8.5 dBm — a deliberate cap that keeps the
+ * Super Mini's regulator out of trouble, at the cost of link margin. Raising it
+ * costs current (and therefore heat) but is the first thing to try when the
+ * connection drops in a weak spot.
+ */
+constexpr uint8_t kTxPowerChoices[] = {8, 13, 19};
+constexpr size_t kTxPowerChoiceCount =
+    sizeof(kTxPowerChoices) / sizeof(kTxPowerChoices[0]);
+
+/** Flash durations the portal accepts, in seconds; 0 turns alerts off. */
+constexpr uint8_t kAlertSecondsChoices[] = {0, 3, 5, 7};
+constexpr size_t kAlertSecondsChoiceCount =
+    sizeof(kAlertSecondsChoices) / sizeof(kAlertSecondsChoices[0]);
+
 bool useMiles();
 bool showRunways();
+/** Track/speed vector lines drawn ahead of each aircraft symbol. */
+bool showTrackVectors();
+/** Thin grey tail behind each aircraft. */
+bool showTrails();
+/** Per-class silhouettes (helicopter, heavy) instead of one triangle. */
+bool showClassIcons();
+/** Flash duration in seconds; 0 = alerts off. */
+uint8_t alertSeconds();
+uint8_t fontStep();
+/** Wi-Fi transmit power in dBm, one of kTxPowerChoices. */
+uint8_t txPowerDbm();
 /** WiFi portal checkbox: "T" = miles, otherwise km. */
 void saveMilesFromPortal(const char* checkbox_value);
 void saveRunwaysFromPortal(const char* checkbox_value);
+void saveTrackVectorsFromPortal(const char* checkbox_value);
+void saveTrailsFromPortal(const char* checkbox_value);
+void saveClassIconsFromPortal(const char* checkbox_value);
+/** WiFi portal number field: one of kAlertSecondsChoices. */
+void saveAlertSecondsFromPortal(const char* value);
+/** WiFi portal number field: 1..kFontStepCount, stored 0-based. */
+void saveFontStepFromPortal(const char* value);
+/** WiFi portal number field: one of kTxPowerChoices. */
+void saveTxPowerFromPortal(const char* value);
 void formatRing3Label(char* buf, size_t len, float ring3_km, bool use_miles);
 void formatCurrentRing3Label(char* buf, size_t len);
-/** Reset distance units to km (e.g. with WiFi credential wipe). */
+/** Reset display options to their defaults (e.g. with WiFi credential wipe). */
 void unitsReset();
 
 }  // namespace ui::radar

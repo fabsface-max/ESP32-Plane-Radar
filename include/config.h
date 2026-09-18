@@ -18,8 +18,17 @@ constexpr unsigned long kWifiConnectAttemptMs = 15000;
 constexpr uint8_t kWifiConnectAttempts = 3;
 constexpr unsigned long kWifiPortalTimeoutSec = 0;  // 0 = no timeout while configuring
 constexpr unsigned long kWifiConnectingFrameMs = 50;
-/** Wait after disconnect before reconnecting (avoids portal on brief drops). */
-constexpr unsigned long kWifiDownGraceMs = 4000;
+/**
+ * Wait after a disconnect before reconnecting actively. The ESP32's own
+ * auto-reconnect usually restores the link inside a few seconds, and jumping in
+ * earlier only tears down a connection that was about to come back.
+ */
+constexpr unsigned long kWifiDownGraceMs = 10000;
+/**
+ * Keep the radar on screen for this long into an outage. Only a drop that
+ * outlasts it is worth replacing the picture with the connecting animation.
+ */
+constexpr unsigned long kWifiConnectingScreenDelayMs = 25000;
 /** Minimum interval between background reconnect tries. */
 constexpr unsigned long kWifiReconnectIntervalMs = 15000;
 
@@ -28,6 +37,17 @@ constexpr gpio_num_t kBootPin = GPIO_NUM_9;
 constexpr unsigned long kBootResetHoldMs = 3000UL;
 /** Ignore BOOT taps shorter than this (debounce). */
 constexpr unsigned long kBootTapMinMs = 40UL;
+
+// --- Power ---
+/**
+ * Core clock. 160 MHz is the ESP32-C3 maximum and what the firmware runs at.
+ * Halving it to 80 MHz was tried as a heat lever and measured no difference on
+ * the board (still ~70 C), so the setting was removed rather than kept as a
+ * control that costs responsiveness and buys nothing.
+ */
+constexpr uint32_t kCpuFreqFullMhz = 160;
+/** How often the chip temperature goes to the serial log. */
+constexpr unsigned long kTempLogIntervalMs = 60000;
 
 // --- Display: GC9A01 1.28" round 240×240 (SPI) ---
 constexpr gpio_num_t kDisplayPinRst = GPIO_NUM_0;

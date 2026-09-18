@@ -1,0 +1,111 @@
+# Quality gates that need no hardware. Stage 4 (firmware build) lives in
+# build.yml; stage 5 (hardware smoke test) is a human checklist in docs/QUALITY.md.
+name: Quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Host unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-native-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Run tests
+        run: pio test -e native
+
+  portal-page:
+    name: Portal settings page renders whole
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The settings page used to be built by WiFiManager as one Arduino
+      # String, which truncates silently when the heap cannot grow it. The page
+      # is now written to the socket in chunks; this renders it on the host and
+      # fails if any control, the Save button or the closing tag is missing.
+      - name: Render and check the settings page
+        run: |
+          g++ -std=gnu++17 -Wall -Wextra -Werror \
+              -I include -I tools/host_checks/stubs \
+              tools/host_checks/portal_page_test.cpp \
+              src/services/portal_pages.cpp \
+              -o /tmp/portal_page_test
+          /tmp/portal_page_test
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        # Third-party headers (Arduino core, LovyanGFX) are not checked out here,
+        # so unresolved includes are expected and suppressed; everything cppcheck
+        # can still prove about this project's own code must come back clean.
+        run: |
+          cppcheck --enable=warning,performance,portability \
+                   --inline-suppr \
+                   --suppress=missingInclude \
+                   --suppress=missingIncludeSystem \
+                   --suppress=unusedStructMember \
+                   --error-exitcode=1 \
+                   --std=c++17 \
+                   -I include \
+                   src include
+
+  font-data:
+    name: Font files match generator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install freetype-py
+        run: pip install freetype-py
+
+      - name: Rebuild fonts and diff
+        # The .vlw files are generated artifacts. If a rebuild changes them, the
+        # committed fonts and scripts/build_ui_fonts.py have drifted apart.
+        run: |
+          python3 scripts/build_ui_fonts.py
+          git diff --exit-code -- data/

@@ -15,6 +15,7 @@
 #endif
 
 #include "config.h"
+#include "services/portal_pages.h"
 #include "services/radar_location.h"
 #include "ui/radar_range.h"
 #include "ui/status_screens.h"
@@ -67,55 +68,37 @@ void ensureWifiManager();
 void startLanWebPortal();
 void stopLanWebPortal();
 bool wifiLinkUp();
+void applyTxPower();
 
-constexpr int kCoordParamLen = 20;
-constexpr char kCoordInputAttrs[] =
-    " type=\"number\" step=\"0.000001\"";
+/** WPA2 minimum is 8 characters. */
+constexpr size_t kApPasswordLen = 8;
+char s_ap_password[kApPasswordLen + 1] = {};
 
-WiFiManagerParameter s_param_lat("radar_lat", "Latitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
-WiFiManagerParameter s_param_lon("radar_lon", "Longitude (deg)", "0",
-                                kCoordParamLen, kCoordInputAttrs);
+/**
+ * WiFiManager registers every route without authentication — its own auth hook
+ * is a no-op in 2.0.17 — and the default menu even links an OTA upload form.
+ * Anyone who can reach the device on the LAN could otherwise push firmware,
+ * wipe credentials, or reboot it. These routes serve nothing this firmware
+ * needs: there is no second OTA slot to flash into, and a credential reset is
+ * available by holding BOOT on the device itself.
+ */
+const char* const kBlockedPortalRoutes[] = {"/update", "/u", "/erase",
+                                            "/restart"};
 
-char s_miles_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_miles("use_miles", "Display distances in miles", "T", 2,
-                                   s_miles_checkbox_attrs, WFM_LABEL_AFTER);
+/**
+ * Portal menu. No "param" entry: the settings live on our own /settings page,
+ * which the navigation bar links from every page. No OTA entry either — that
+ * route is blocked, see kBlockedPortalRoutes.
+ */
+const char* kPortalMenu[] = {"wifi", "info"};
 
-char s_runways_checkbox_attrs[32] = "type=\"checkbox\"";
-WiFiManagerParameter s_param_runways("show_runways", "Show airport runways", "T", 2,
-                                     s_runways_checkbox_attrs, WFM_LABEL_AFTER);
+bool s_display_settings_changed = false;
 
-void refreshPortalParamDefaults() {
-  char lat_buf[kCoordParamLen + 1];
-  char lon_buf[kCoordParamLen + 1];
-  snprintf(lat_buf, sizeof(lat_buf), "%.6f", services::location::lat());
-  snprintf(lon_buf, sizeof(lon_buf), "%.6f", services::location::lon());
-  s_param_lat.setValue(lat_buf, kCoordParamLen);
-  s_param_lon.setValue(lon_buf, kCoordParamLen);
-  snprintf(s_miles_checkbox_attrs, sizeof(s_miles_checkbox_attrs), "type=\"checkbox\"%s",
-           ui::radar::useMiles() ? " checked" : "");
-  s_param_miles.setValue("T", 2);
-  snprintf(s_runways_checkbox_attrs, sizeof(s_runways_checkbox_attrs),
-           "type=\"checkbox\"%s", ui::radar::showRunways() ? " checked" : "");
-  s_param_runways.setValue("T", 2);
-}
-
-void onPortalParamsSaved() {
-  if (!services::location::saveFromStrings(s_param_lat.getValue(),
-                                           s_param_lon.getValue())) {
-    Serial.println("Invalid lat/lon in portal — keeping previous location");
-  }
-  ui::radar::saveMilesFromPortal(s_param_miles.getValue());
-  ui::radar::saveRunwaysFromPortal(s_param_runways.getValue());
-}
-
-void attachPortalParams(WiFiManager& wm) {
-  refreshPortalParamDefaults();
-  wm.addParameter(&s_param_lat);
-  wm.addParameter(&s_param_lon);
-  wm.addParameter(&s_param_miles);
-  wm.addParameter(&s_param_runways);
-  wm.setSaveParamsCallback(onPortalParamsSaved);
+/** Runs after /settingssave has stored everything the form carried. */
+void onSettingsSaved() {
+  // Transmit power is the one setting that can take hold without a redraw.
+  applyTxPower();
+  s_display_settings_changed = true;
 }
 
 void markForceConfigPortal() {
@@ -195,8 +178,46 @@ void resetWifiCredentials() {
   Serial.println("WiFi credentials, location, and units cleared");
 }
 
+/**
+ * Runs after WiFiManager creates its web server but before it registers its own
+ * routes. ESP32's WebServer dispatches to the first handler that matches, so
+ * claiming the dangerous URIs here shadows the library's versions for good.
+ */
+void onWebServerStarted() {
+  if (s_wm.server == nullptr) {
+    return;
+  }
+  for (const char* route : kBlockedPortalRoutes) {
+    s_wm.server->on(route, HTTP_ANY, []() {
+      s_wm.server->send(404, "text/plain", "Not found");
+    });
+  }
+  services::portal::registerRoutes(*s_wm.server, onSettingsSaved);
+}
+
+/**
+ * Transmit power from the portal setting. The firmware has always run at
+ * 8.5 dBm — a cap that keeps the Super Mini's regulator out of trouble at the
+ * cost of link margin, which is the first thing to raise when the connection
+ * drops in a weak spot.
+ */
+void applyTxPower() {
+  wifi_power_t power = WIFI_POWER_8_5dBm;
+  switch (ui::radar::txPowerDbm()) {
+    case 13:
+      power = WIFI_POWER_13dBm;
+      break;
+    case 19:
+      power = WIFI_POWER_19_5dBm;
+      break;
+    default:
+      break;
+  }
+  WiFi.setTxPower(power);
+}
+
 void onConfigPortalApStarted(WiFiManager*) {
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  applyTxPower();
   statusScreenPortal();
 #ifdef WM_MDNS
   if (MDNS.begin(config::kPortalHostname)) {
@@ -225,7 +246,15 @@ void ensureWifiManager() {
                            IPAddress(255, 255, 255, 0));
   s_wm.setHostname(config::kPortalHostname);
   s_wm.setAPCallback(onConfigPortalApStarted);
-  attachPortalParams(s_wm);
+  s_wm.setWebServerCallback(onWebServerStarted);
+  s_wm.setTitle("Plane Radar");
+  s_wm.setCustomHeadElement(services::portal::headHtml());
+  s_wm.setMenu(kPortalMenu, sizeof(kPortalMenu) / sizeof(kPortalMenu[0]));
+  // Both buttons lead to routes this firmware refuses to serve, so the info
+  // page should not advertise them. The "Available pages" table that used to
+  // list /u, /restart and /erase alongside them is compiled out by WM_NOHELP.
+  s_wm.setShowInfoErase(false);
+  s_wm.setShowInfoUpdate(false);
   s_wm_configured = true;
 }
 
@@ -234,7 +263,6 @@ void startLanWebPortal() {
       s_wm.getConfigPortalActive()) {
     return;
   }
-  refreshPortalParamDefaults();
   WiFi.mode(WIFI_STA);
   s_wm.setConfigPortalBlocking(false);
 #ifdef WM_MDNS
@@ -259,7 +287,7 @@ void stopLanWebPortal() {
 }
 
 void prepareSta() {
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  applyTxPower();
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(WIFI_PS_NONE);
   WiFi.setAutoReconnect(true);
@@ -356,7 +384,7 @@ bool openConfigPortal() {
   delay(50);
   statusScreenPortal();
   s_wm.setConfigPortalBlocking(false);
-  s_wm.startConfigPortal(config::kPortalApName);
+  s_wm.startConfigPortal(config::kPortalApName, wifiSetupApPassword());
   while (s_wm.getConfigPortalActive()) {
     bootButtonPollLongPress();
     if (s_wm.process()) {
@@ -368,6 +396,31 @@ bool openConfigPortal() {
 }
 
 }  // namespace
+
+const char* wifiSetupApPassword() {
+  if (s_ap_password[0] != '\0') {
+    return s_ap_password;
+  }
+
+  // Ambiguous glyphs (0/O, 1/I/l) are left out: the password is read off a
+  // 1.28" screen and typed on a phone.
+  static constexpr char kAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+  constexpr uint64_t kAlphabetMask = 31;  // sizeof(kAlphabet) - 1 == 32 chars
+
+  uint8_t mac[6] = {};
+  WiFi.macAddress(mac);
+
+  uint64_t bits = 0;
+  for (uint8_t octet : mac) {
+    bits = (bits << 8) | octet;
+  }
+  for (size_t i = 0; i < kApPasswordLen; ++i) {
+    s_ap_password[i] = kAlphabet[bits & kAlphabetMask];
+    bits >>= 5;
+  }
+  s_ap_password[kApPasswordLen] = '\0';
+  return s_ap_password;
+}
 
 bool wifiShowsSetupScreenOnBoot() {
   if (s_force_config_portal) {
@@ -429,10 +482,16 @@ void wifiResetCredentialsAndReboot() {
   esp_restart();
 }
 
-bool wifiReconnect() {
+bool wifiReconnect(bool show_ui) {
   initBootButton();
   Serial.println("WiFi reconnecting...");
-  return connectSavedNetwork(true);
+  return connectSavedNetwork(show_ui);
+}
+
+bool wifiConsumeDisplaySettingsChanged() {
+  const bool changed = s_display_settings_changed;
+  s_display_settings_changed = false;
+  return changed;
 }
 
 void wifiLoop() {
